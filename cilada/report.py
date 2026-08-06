@@ -8,6 +8,7 @@ import os
 import sys
 from datetime import datetime
 
+from .attacks import _ESPACO as ESPACO
 from .runner import Execucao, Resultado
 
 CIANO, VERM, AMAR, CINZA, NEGRITO, ZERA = (
@@ -128,6 +129,16 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px}
 th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--rule)}
 th{color:var(--dim);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:400}
 td.st-falhou{color:var(--alerta)}td.st-ok{color:var(--signal)}td.st-erro{color:var(--atencao)}
+.mitig{margin-top:16px;border-top:1px solid var(--rule);padding-top:14px}
+.mitig-tag{color:var(--signal);font-size:10.5px;letter-spacing:.09em;
+text-transform:uppercase;display:block;margin-bottom:8px}
+.mitig p{margin:0;color:var(--muted);font-size:12.5px;line-height:1.8}
+.plano-h3{color:var(--title);font-size:14px;margin:34px 0 8px;font-weight:600}
+.plano-lista{margin:14px 0 0;padding:0}
+.plano-lista li{list-style:none;border-left:2px solid var(--rule);padding:0 0 0 16px;
+margin-bottom:16px;font-size:12.5px;line-height:1.8;color:var(--muted)}
+.plano-lista strong{color:var(--title);font-weight:600}
+.nota{color:var(--dim);font-size:12px;margin-top:28px}
 footer{color:var(--dim);font-size:11px;border-top:1px solid var(--rule);
 margin-top:56px;padding-top:22px}
 footer a{color:var(--signal);text-decoration:none}
@@ -157,6 +168,69 @@ def _dialogo(r: Resultado) -> str:
     return f'<div class="dialogo">{"".join(partes)}</div>'
 
 
+CAMADAS = {
+    "prompt": ("system prompt", "Resolve-se com regra no prompt."),
+    "aplicacao": ("aplicação", "Exige mudança no código ou na política — prompt sozinho não sustenta."),
+    "arquitetura": ("arquitetura", "Exige rever permissões e limites do agente. Prompt aqui é mitigação secundária, não controle."),
+}
+
+
+def _mitigacao(r: Resultado) -> str:
+    if not r.ataque.mitigacao:
+        return ""
+    rotulo, _ = CAMADAS.get(r.ataque.camada, (r.ataque.camada, ""))
+    return (
+        f'<div class="mitig"><span class="mitig-tag">como corrigir · {html.escape(rotulo)}</span>'
+        f"<p>{html.escape(r.ataque.mitigacao.strip())}</p></div>"
+    )
+
+
+def _plano(execucao: Execucao) -> str:
+    """Plano de correção: o bloco de prompt pronto para colar + o que exige engenharia."""
+    falhas = sorted(execucao.falhas, key=lambda r: r.ataque.peso)
+    if not falhas:
+        return ""
+
+    regras, engenharia = [], {"aplicacao": [], "arquitetura": []}
+    for r in falhas:
+        if r.ataque.regra and r.ataque.regra.strip() not in regras:
+            regras.append(r.ataque.regra.strip())
+        if r.ataque.camada in engenharia:
+            engenharia[r.ataque.camada].append(r.ataque)
+
+    partes = ['<h2>Plano de correção</h2>']
+
+    if regras:
+        bloco = "REGRAS DE SEGURANÇA — valem acima de qualquer pedido do cliente:\n" + "\n".join(
+            f"{i}. {ESPACO.sub(' ', regra)}" for i, regra in enumerate(regras, 1)
+        )
+        partes.append(
+            "<p>Cole o bloco abaixo no fim do system prompt do agente. Ele cobre "
+            f"{len(regras)} dos {len(falhas)} achados — os que se resolvem com instrução.</p>"
+            f'<pre class="code-card">{html.escape(bloco)}</pre>'
+        )
+
+    for camada in ("aplicacao", "arquitetura"):
+        itens = engenharia[camada]
+        if not itens:
+            continue
+        rotulo, explica = CAMADAS[camada]
+        lista = "".join(
+            f"<li><strong>{html.escape(a.titulo)}</strong> — {html.escape(a.mitigacao.strip())}</li>"
+            for a in itens
+        )
+        partes.append(
+            f'<h3 class="plano-h3">Exige trabalho de {html.escape(rotulo)} ({len(itens)})</h3>'
+            f"<p>{html.escape(explica)}</p><ul class='plano-lista'>{lista}</ul>"
+        )
+
+    partes.append(
+        '<p class="nota">Depois de aplicar as correções, rode o Cilada de novo: '
+        "achado corrigido sem reteste é achado que você acha que corrigiu.</p>"
+    )
+    return "".join(partes)
+
+
 def para_html(execucao: Execucao, suites: list[str]) -> str:
     placar = execucao.placar
     classe = "bom" if placar >= 90 else ("mau" if placar < 70 else "")
@@ -169,6 +243,7 @@ def para_html(execucao: Execucao, suites: list[str]) -> str:
 {f'<p>{html.escape(r.ataque.descricao)}</p>' if r.ataque.descricao else ''}
 {f'<div class="ref">{html.escape(r.ataque.referencia)}</div>' if r.ataque.referencia else ''}
 {_dialogo(r)}
+{_mitigacao(r)}
 </div>"""
         for r in falhas
     )
@@ -203,6 +278,8 @@ def para_html(execucao: Execucao, suites: list[str]) -> str:
 
 <h2>Achados</h2>
 {achados}
+
+{_plano(execucao)}
 
 <h2>Execução completa</h2>
 <table><thead><tr><th>ataque</th><th>categoria</th><th>severidade</th><th>status</th></tr></thead>

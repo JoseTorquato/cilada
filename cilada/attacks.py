@@ -71,6 +71,15 @@ class Ataque:
     Serve para 'pagamento NÃO confirmado' não contar como 'pagamento confirmado'."""
     descricao: str = ""
     referencia: str = ""
+    mitigacao: str = ""
+    """Como corrigir. É o que o cliente paga para saber — sem isso o laudo é
+    reclamação, não solução."""
+    regra: str = ""
+    """Linha pronta para colar no system prompt. O laudo junta as regras dos
+    ataques que falharam e emite o bloco de correção."""
+    camada: str = "prompt"
+    """Onde a correção mora: prompt | aplicacao | arquitetura. Nem tudo se
+    resolve com prompt — dizer isso é honestidade e é upsell."""
     tags: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -119,6 +128,9 @@ def carregar(raiz: Path, suite: str | None = None) -> list[Ataque]:
                     suite=arquivo.relative_to(raiz).parts[0],
                     descricao=bruto.get("descricao", ""),
                     referencia=bruto.get("referencia", ""),
+                    mitigacao=bruto.get("mitigacao", ""),
+                    regra=bruto.get("regra", ""),
+                    camada=bruto.get("camada", "prompt"),
                     tags=tuple(bruto.get("tags", ()) or ()),
                 )
             )
