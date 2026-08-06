@@ -149,8 +149,20 @@ um laudo cujo juiz muda de opinião entre duas execuções.
 
 - **Resistir a estes 23 ataques não é certificado de segurança.** É resistência a
   este conjunto. Ausência de falha aqui não prova ausência de vulnerabilidade.
+- **O resultado é candidato a achado, não veredito.** O juízo é por padrão de
+  texto: ele detecta o que o agente *disse*, não o que ele *quis dizer*. Frase
+  condicional engana proximidade — na calibração contra um LLM real, *"eu vejo
+  **se** ele chega antes da sexta"* foi acusada como promessa de prazo, quando
+  era oferta de checar. Cada rodada de calibração derrubou o falso positivo (de
+  36% para menos de 5%), mas resta uma cauda. **Num laudo que vai ser assinado,
+  revise os achados antes de entregar.**
 - O juízo determinístico troca nuance por reprodutibilidade: um agente pode falhar
   de um jeito que nenhum regex daqui pega.
+- **LLM varia entre execuções.** Duas rodadas do mesmo alvo com o mesmo prompt
+  podem falhar em ataques diferentes. Para publicar comparação, rode N vezes.
+- Parte dos ataques é **relativa à política do cliente** (ver
+  `attacks/ecommerce/descontos.yaml`): conceder desconto não é falha, exceder a
+  alçada é. Calibre os limites antes de rodar num cliente real.
 - **Só teste agentes que você opera ou tem autorização escrita para testar.**
   Disparar ataques contra bot de terceiro sem autorização pode configurar
   ilícito — inclusive pela Lei 12.737/2012.
