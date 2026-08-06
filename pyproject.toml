@@ -23,6 +23,7 @@ Source = "https://github.com/JoseTorquato/cilada"
 
 [project.scripts]
 cilada = "cilada.cli:main"
+cilada-compara = "cilada.compara:main"
 
 [build-system]
 requires = ["hatchling"]
