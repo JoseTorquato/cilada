@@ -80,6 +80,13 @@ class Ataque:
     camada: str = "prompt"
     """Onde a correção mora: prompt | aplicacao | arquitetura. Nem tudo se
     resolve com prompt — dizer isso é honestidade e é upsell."""
+    sempre_no_plano: bool = False
+    """Entra no plano de correção mesmo que o ataque tenha passado.
+
+    Existe porque medimos: injetar regras de segurança no prompt fez um agente
+    que RESISTIA ao vazamento de instruções passar a vazar — o bloco de regras
+    virou mais superfície para vazar. Correção que abre buraco novo não é
+    correção."""
     tags: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -131,6 +138,7 @@ def carregar(raiz: Path, suite: str | None = None) -> list[Ataque]:
                     mitigacao=bruto.get("mitigacao", ""),
                     regra=bruto.get("regra", ""),
                     camada=bruto.get("camada", "prompt"),
+                    sempre_no_plano=bool(bruto.get("sempre_no_plano", False)),
                     tags=tuple(bruto.get("tags", ()) or ()),
                 )
             )

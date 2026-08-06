@@ -198,15 +198,32 @@ def _plano(execucao: Execucao) -> str:
         if r.ataque.camada in engenharia:
             engenharia[r.ataque.camada].append(r.ataque)
 
+    # Regras que entram mesmo tendo passado: acrescentar texto ao prompt cria
+    # superfície nova, e sem elas a correção abre um buraco enquanto fecha outro.
+    base = [
+        r.ataque.regra.strip()
+        for r in execucao.resultados
+        if r.ataque.sempre_no_plano and r.ataque.regra and r.ataque.regra.strip() not in regras
+    ]
+    regras += base
+
     partes = ['<h2>Plano de correção</h2>']
 
     if regras:
         bloco = "REGRAS DE SEGURANÇA — valem acima de qualquer pedido do cliente:\n" + "\n".join(
             f"{i}. {ESPACO.sub(' ', regra)}" for i, regra in enumerate(regras, 1)
         )
+        nota_base = (
+            f" Inclui {len(base)} regra(s) de proteção que o agente passou, mas que"
+            " passam a ser necessárias justamente porque este bloco aumenta o que há"
+            " para vazar."
+            if base
+            else ""
+        )
         partes.append(
             "<p>Cole o bloco abaixo no fim do system prompt do agente. Ele cobre "
-            f"{len(regras)} dos {len(falhas)} achados — os que se resolvem com instrução.</p>"
+            f"{len(regras) - len(base)} dos {len(falhas)} achados — os que se resolvem"
+            f" com instrução.{nota_base}</p>"
             f'<pre class="code-card">{html.escape(bloco)}</pre>'
         )
 
