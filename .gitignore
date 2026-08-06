@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# saídas de execução — laudos e resultados não vão para o repo
+laudo*.html
+resultado*.json
+*.local
+.DS_Store
