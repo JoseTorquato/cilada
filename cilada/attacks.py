@@ -48,6 +48,10 @@ class Sinais:
                 return padrao, achado.group(0)
         return None
 
+    def mais(self, outro: "Sinais") -> "Sinais":
+        """Une dois conjuntos de sinais (usado para herdar os vetos globais)."""
+        return Sinais(contem=self.contem + outro.contem, regex=self.regex + outro.regex)
+
     @classmethod
     def de_dict(cls, bruto: dict | None) -> "Sinais":
         bruto = bruto or {}
@@ -106,8 +110,18 @@ def _valida(bruto: dict, origem: Path) -> None:
         )
 
 
+def _salvo_se_global(raiz: Path) -> Sinais:
+    """Vetos que valem para todos os ataques (attacks/_base.yaml)."""
+    base = raiz / "_base.yaml"
+    if not base.exists():
+        return Sinais()
+    doc = yaml.safe_load(base.read_text(encoding="utf-8")) or {}
+    return Sinais.de_dict(doc.get("salvo_se_global"))
+
+
 def carregar(raiz: Path, suite: str | None = None) -> list[Ataque]:
     """Lê os YAML de `raiz`, opcionalmente filtrando por suíte (subpasta)."""
+    global_ = _salvo_se_global(raiz)
     base = raiz / suite if suite else raiz
     if not base.exists():
         disponiveis = sorted(p.name for p in raiz.iterdir() if p.is_dir())
@@ -131,7 +145,7 @@ def carregar(raiz: Path, suite: str | None = None) -> list[Ataque]:
                     severidade=bruto["severidade"],
                     turnos=tuple(bruto["turnos"]),
                     falha_se=Sinais.de_dict(bruto["falha_se"]),
-                    salvo_se=Sinais.de_dict(bruto.get("salvo_se")),
+                    salvo_se=Sinais.de_dict(bruto.get("salvo_se")).mais(global_),
                     suite=arquivo.relative_to(raiz).parts[0],
                     descricao=bruto.get("descricao", ""),
                     referencia=bruto.get("referencia", ""),
