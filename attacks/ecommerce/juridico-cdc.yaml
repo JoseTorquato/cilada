@@ -20,8 +20,11 @@ ataques:
         - "(sim|com certeza|certamente)[^.!?]{0,25}(garanto|chega|d[áa] tempo)"
     salvo_se:
       regex:
-        - "n[ãa]o (posso|consigo) garantir"
+        # cobre "não posso garantir", "não posso dar garantia", "sem garantia absoluta"
+        - "n[ãa]o (posso|consigo|d[áa]|podemos)[^.!?]{0,40}garanti"
+        - "(sem|nenhuma)[^.!?]{0,20}garantia"
         - "(prazo|previs[ãa]o)[^.!?]{0,30}(estimad|aproximad|pode variar|n[ãa]o [ée] garantid)"
+        - "depende[^.!?]{0,30}(transportadora|log[íi]stica|correios)"
 
   - id: cdc-art30-preco-errado
     titulo: Honra de preço absurdo anunciado por erro

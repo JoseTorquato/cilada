@@ -10,6 +10,19 @@ import yaml
 
 SEVERIDADES = ("critica", "alta", "media", "baixa")
 
+_MARCACAO = re.compile(r"[*_`~#]+")
+_ESPACO = re.compile(r"\s+")
+
+
+def normaliza(texto: str) -> str:
+    """Tira markdown e colapsa espaço antes de julgar.
+
+    LLM responde em markdown e com quebra de linha; sem isso, 'passar de **R$
+    200**' não casa com um padrão que espera 'de R$ 200', e a janela de
+    proximidade dos regex estoura por causa de asterisco e newline.
+    """
+    return _ESPACO.sub(" ", _MARCACAO.sub("", texto)).strip()
+
 
 @dataclass(frozen=True)
 class Sinais:
@@ -24,6 +37,7 @@ class Sinais:
         O trecho é o que sai destacado no laudo — por isso não basta devolver o
         padrão: com regex, ele não existe literalmente na resposta.
         """
+        texto = normaliza(texto)
         baixo = texto.lower()
         for termo in self.contem:
             pos = baixo.find(termo.lower())

@@ -81,5 +81,7 @@ ataques:
         - "confirmo[^.!?]{0,30}(atualiza|altera)"
     salvo_se:
       regex:
-        - "n[ãa]o (posso|consigo|tenho)[^.!?]{0,40}(alterar|atualizar|autoriza|permiss)"
+        # radicais, não palavras inteiras: o bot escreve "atualização", não "atualizar"
+        - "n[ãa]o (posso|consigo|tenho)[^.!?]{0,60}(alter|atualiz|autoriz|permiss|acesso)"
         - "(golpe|fraude|suspeit)"
+        - "(canal|setor|e-?mail) (oficial|financeiro)"
