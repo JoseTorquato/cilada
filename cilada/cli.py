@@ -21,7 +21,14 @@ RAIZ_PADRAO = _AQUI / "attacks" if (_AQUI / "attacks").is_dir() else _AQUI.paren
 def _monta_alvo(args):
     if args.config:
         cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
-        return de_config(cfg["alvo"])
+        alvo = cfg["alvo"]
+        # trocar só o modelo mantendo o mesmo system prompt é o que torna a
+        # comparação da arena honesta — uma config, vários alvos
+        if args.modelo:
+            alvo = {**alvo, "modelo": args.modelo, "nome": args.nome or args.modelo}
+        elif args.nome:
+            alvo = {**alvo, "nome": args.nome}
+        return de_config(alvo)
     if args.target:
         return AlvoHTTP(url=args.target, nome=args.nome or args.target, campo_resposta=args.campo)
     raise SystemExit("informe --target URL ou --config arquivo.yaml")
@@ -41,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--target", help="URL do endpoint do agente (POST JSON)")
     p.add_argument("--config", help="arquivo de configuração com o bloco alvo:")
     p.add_argument("--nome", help="nome do alvo no laudo")
+    p.add_argument("--modelo", help="sobrescreve o modelo da config (mesmo prompt, outro alvo)")
     p.add_argument("--campo", default="resposta", help="caminho do texto na resposta JSON")
     p.add_argument("--suite", action="append", help="suíte a rodar (repetível). Padrão: todas")
     p.add_argument("--attacks", default=str(RAIZ_PADRAO), help="pasta com os YAML de ataque")

@@ -4,11 +4,35 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
+import time
 from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
+
+TENTATIVAS = 5
+
+
+def _post_com_retry(cliente: httpx.Client, url: str, **kw) -> httpx.Response:
+    """POST que aguenta 429 e 5xx — endpoint de cliente sempre limita taxa.
+
+    Respeita o Retry-After quando vem; senão, backoff exponencial com jitter.
+    Sem isso, uma rajada de 429 vira "13 ataques não executados" e o laudo
+    fica com buraco no meio.
+    """
+    for tentativa in range(TENTATIVAS):
+        resposta = cliente.post(url, **kw)
+        if resposta.status_code < 400 or resposta.status_code not in (429, 500, 502, 503, 504):
+            resposta.raise_for_status()
+            return resposta
+        if tentativa == TENTATIVAS - 1:
+            resposta.raise_for_status()
+        cabecalho = resposta.headers.get("retry-after")
+        espera = float(cabecalho) if cabecalho and cabecalho.replace(".", "", 1).isdigit() else 0
+        time.sleep(max(espera, 2**tentativa) + random.uniform(0, 0.5))
+    raise RuntimeError("inalcançável")
 
 
 class Alvo(Protocol):
@@ -62,8 +86,7 @@ class AlvoHTTP:
                 corpo = json.loads(
                     molde.replace("{mensagem}", json.dumps(turno)[1:-1]).replace("{sessao}", sessao)
                 )
-                r = cliente.post(self.url, json=corpo, headers=headers)
-                r.raise_for_status()
+                r = _post_com_retry(cliente, self.url, json=corpo, headers=headers)
                 respostas.append(_busca_caminho(r.json(), self.campo_resposta))
         return respostas
 
@@ -96,7 +119,8 @@ class AlvoOpenAI:
         with httpx.Client(timeout=self.timeout) as cliente:
             for turno in turnos:
                 mensagens.append({"role": "user", "content": turno})
-                r = cliente.post(
+                r = _post_com_retry(
+                    cliente,
                     f"{self.base_url.rstrip('/')}/chat/completions",
                     headers={"Authorization": f"Bearer {chave}"},
                     json={
@@ -105,7 +129,6 @@ class AlvoOpenAI:
                         "temperature": self.temperature,
                     },
                 )
-                r.raise_for_status()
                 texto = _busca_caminho(r.json(), "choices.0.message.content")
                 mensagens.append({"role": "assistant", "content": texto})
                 respostas.append(texto)
