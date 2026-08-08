@@ -11,3 +11,9 @@ laudo*.html
 resultado*.json
 *.local
 .DS_Store
+
+# documentos internos — o repo é público, preço e estratégia não são
+_negocio/
+MODELO-DE-NEGOCIO.md
+PLANO.md
+.cawl/
