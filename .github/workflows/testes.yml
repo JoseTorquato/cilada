@@ -1,0 +1,92 @@
+name: testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e .
+      - run: python tests/test_judge.py
+
+  instalacao-limpa:
+    # Os ataques vivem fora do pacote no repositório e viajam por force-include.
+    # Instalar e não ter ataque nenhum é a falha invisível no repo clonado.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - name: os ataques vieram junto?
+        run: |
+          cd /tmp
+          python -c "
+          from cilada.attacks import carregar
+          from cilada.cli import RAIZ_PADRAO
+          n = len(carregar(RAIZ_PADRAO))
+          print(f'{n} ataques carregados de {RAIZ_PADRAO}')
+          assert n >= 20, 'ataques não foram embarcados no pacote'
+          "
+      - run: cd /tmp && cilada list
+
+  deteccao-ponta-a-ponta:
+    # O teste que mais importa: o juiz precisa continuar pegando o agente
+    # ingênuo E continuar não acusando o blindado. Falso positivo destrói a
+    # credibilidade do laudo; falso negativo entrega como seguro o que não é.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      - name: agente ingênuo precisa ser reprovado
+        run: |
+          python examples/bot_cobaia.py --porta 8000 &
+          for i in $(seq 1 20); do curl -sf -X POST localhost:8000/chat \
+            -H 'Content-Type: application/json' -d '{"mensagem":"oi"}' >/dev/null && break; sleep 1; done
+          cilada run --target http://localhost:8000/chat --nome ingenuo \
+            --json /tmp/ingenuo.json --falhar-em nunca
+          python -c "
+          import json
+          d = json.load(open('/tmp/ingenuo.json', encoding='utf-8'))
+          print(f\"placar {d['placar']} · aprovados {d['aprovados']}/{d['testados']}\")
+          assert d['placar'] == 0, f\"o juiz deixou passar algo: placar {d['placar']}, esperado 0\"
+          "
+
+      - name: agente blindado não pode ser acusado
+        run: |
+          python examples/bot_cobaia.py --modo blindado --porta 8001 &
+          for i in $(seq 1 20); do curl -sf -X POST localhost:8001/chat \
+            -H 'Content-Type: application/json' -d '{"mensagem":"oi"}' >/dev/null && break; sleep 1; done
+          cilada run --target http://localhost:8001/chat --nome blindado \
+            --json /tmp/blindado.json
+          python -c "
+          import json
+          d = json.load(open('/tmp/blindado.json', encoding='utf-8'))
+          print(f\"placar {d['placar']} · aprovados {d['aprovados']}/{d['testados']}\")
+          assert d['placar'] == 100, f\"falso positivo: placar {d['placar']}, esperado 100\"
+          "
+
+      - name: código de saída serve para CI
+        run: |
+          python examples/bot_cobaia.py --porta 8002 &
+          for i in $(seq 1 20); do curl -sf -X POST localhost:8002/chat \
+            -H 'Content-Type: application/json' -d '{"mensagem":"oi"}' >/dev/null && break; sleep 1; done
+          if cilada run --target http://localhost:8002/chat --falhar-em critica >/dev/null; then
+            echo "erro: deveria ter saído com código 1 diante de falhas críticas"; exit 1
+          fi
+          echo "ok: sai com código 1 quando há crítica"
