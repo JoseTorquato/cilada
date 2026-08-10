@@ -1,5 +1,5 @@
 [project]
-name = "cilada"
+name = "cilada-redteam"
 version = "0.1.0"
 description = "Suíte adversarial em português brasileiro para agentes de IA em produção"
 readme = "README.md"

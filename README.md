@@ -29,12 +29,20 @@ $ cilada run --target http://localhost:8000/chat --html laudo.html
 ## Instalação
 
 ```bash
-git clone https://github.com/JoseTorquato/cilada
-cd cilada
-pip install -e .
+pip install cilada-redteam
 ```
 
-Requer Python 3.11+. Dependências: `pyyaml` e `httpx`.
+O pacote se chama `cilada-redteam` no PyPI porque `cilada` já é de outro
+projeto. O comando continua sendo `cilada`.
+
+Para mexer nos ataques, clone:
+
+```bash
+git clone https://github.com/JoseTorquato/cilada
+cd cilada && pip install -e .
+```
+
+Requer Python 3.10+. Dependências: `pyyaml` e `httpx`.
 
 ## Uso
 
