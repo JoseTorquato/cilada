@@ -7,7 +7,7 @@ import os
 import random
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import httpx
@@ -102,27 +102,45 @@ class AlvoOpenAI:
     modelo: str
     system: str
     base_url: str = "https://api.openai.com/v1"
-    api_key_env: str = "OPENAI_API_KEY"
+    api_key_env: str | None = "OPENAI_API_KEY"
+    """Nome da variável de ambiente com a chave. None = o alvo não exige chave
+    (Ollama local, servidor de teste). A chave em si nunca vem da config."""
     nome: str = ""
     temperature: float = 0.0
     timeout: float = 60.0
+    transporte: httpx.BaseTransport | None = field(default=None, repr=False)
+    """Só para teste: permite um servidor falso sem rede."""
 
     def __post_init__(self) -> None:
         self.nome = self.nome or self.modelo
+        if self.api_key_env is not None and not _NOME_DE_VARIAVEL.fullmatch(self.api_key_env):
+            raise ValueError(
+                "api_key_env precisa ser o NOME de uma variável de ambiente (ex.: "
+                "OPENAI_API_KEY), não a chave. Nunca escreva a chave no arquivo de config."
+            )
 
-    def conversa(self, turnos: list[str]) -> list[str]:
+    def _cabecalhos(self) -> dict[str, str]:
+        if self.api_key_env is None:
+            return {}
         chave = os.environ.get(self.api_key_env, "")
         if not chave:
-            raise RuntimeError(f"variável de ambiente {self.api_key_env} não definida")
+            raise RuntimeError(
+                f"variável de ambiente {self.api_key_env} não definida. Se o alvo não "
+                "exige chave (ex.: Ollama local), use `sem_chave: true` na config."
+            )
+        return {"Authorization": f"Bearer {chave}"}
+
+    def conversa(self, turnos: list[str]) -> list[str]:
+        cabecalhos = self._cabecalhos()
         mensagens: list[dict[str, str]] = [{"role": "system", "content": self.system}]
         respostas: list[str] = []
-        with httpx.Client(timeout=self.timeout) as cliente:
+        with httpx.Client(timeout=self.timeout, transport=self.transporte) as cliente:
             for turno in turnos:
                 mensagens.append({"role": "user", "content": turno})
                 r = _post_com_retry(
                     cliente,
                     f"{self.base_url.rstrip('/')}/chat/completions",
-                    headers={"Authorization": f"Bearer {chave}"},
+                    headers=cabecalhos,
                     json={
                         "model": self.modelo,
                         "messages": mensagens,
@@ -133,6 +151,31 @@ class AlvoOpenAI:
                 mensagens.append({"role": "assistant", "content": texto})
                 respostas.append(texto)
         return respostas
+
+
+_NOME_DE_VARIAVEL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+# Campos que só existiriam para carregar uma chave literal no YAML. Config vai
+# para repositório, para print de tela e para issue — chave nela é chave vazada.
+_CHAVE_LITERAL = ("api_key", "chave", "token", "key", "authorization", "senha")
+
+
+def _chave_do_alvo(cfg: dict) -> str | None:
+    """Decide de onde vem a chave do alvo openai, recusando chave literal."""
+    literais = sorted(c for c in cfg if c.lower() in _CHAVE_LITERAL)
+    if literais:
+        raise ValueError(
+            f"a config do alvo tem {literais}: a chave nunca vai no YAML. Use "
+            "`api_key_env: NOME_DA_VARIAVEL` e defina a variável no ambiente."
+        )
+    sem_chave = cfg.get("sem_chave", False)
+    if not isinstance(sem_chave, bool):
+        raise ValueError("sem_chave precisa ser true ou false")
+    if sem_chave:
+        if "api_key_env" in cfg:
+            raise ValueError("use `sem_chave: true` ou `api_key_env`, não os dois")
+        return None
+    return cfg.get("api_key_env", "OPENAI_API_KEY")
 
 
 def de_config(cfg: dict) -> Alvo:
@@ -151,7 +194,7 @@ def de_config(cfg: dict) -> Alvo:
             modelo=cfg["modelo"],
             system=cfg.get("system", ""),
             base_url=cfg.get("base_url", "https://api.openai.com/v1"),
-            api_key_env=cfg.get("api_key_env", "OPENAI_API_KEY"),
+            api_key_env=_chave_do_alvo(cfg),
             nome=cfg.get("nome", ""),
         )
     raise ValueError(f"tipo de alvo desconhecido: {tipo}")

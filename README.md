@@ -66,7 +66,7 @@ para testar modelo + system prompt isoladamente — use um arquivo de configura�
 alvo:
   tipo: openai
   base_url: http://localhost:11434/v1
-  api_key_env: OLLAMA_API_KEY
+  sem_chave: true               # Ollama local não exige chave
   modelo: gemma4:latest
   nome: meu agente de atendimento
   system: |
@@ -76,6 +76,13 @@ alvo:
 ```bash
 cilada run --config meu-alvo.yaml --html laudo.html
 ```
+
+Para API em nuvem, troque `sem_chave: true` por `api_key_env: NOME_DA_VARIAVEL`
+e defina a variável no ambiente. **A chave nunca vai no YAML**: o Cilada recusa
+config com `api_key`, `token` ou parecido, e recusa `api_key_env` que pareça a
+própria chave. Exemplos prontos:
+[`examples/alvo-ollama-local.yaml`](examples/alvo-ollama-local.yaml) e
+[`examples/alvo-api-nuvem.yaml`](examples/alvo-api-nuvem.yaml).
 
 **No CI**, para o build quebrar quando a robustez cair:
 

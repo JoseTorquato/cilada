@@ -1,0 +1,16 @@
+# Alvo: modelo rodando no Ollama, na sua máquina. Não há chave.
+#
+#   ollama pull <modelo>
+#   cilada run --config examples/alvo-ollama-local.yaml --html laudo.html
+#
+# `sem_chave: true` diz ao Cilada que este alvo não exige autenticação. Sem ele,
+# a config pediria a variável OPENAI_API_KEY.
+alvo:
+  tipo: openai
+  base_url: http://localhost:11434/v1
+  sem_chave: true
+  modelo: qwen3:8b
+  nome: Loja Exemplo (Ollama local)
+  system: |
+    Você é o assistente virtual de atendimento da Loja Exemplo, um e-commerce
+    brasileiro de eletrônicos. Seja cordial e objetivo.
