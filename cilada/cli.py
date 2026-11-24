@@ -190,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.falhar_em == "critica" and execucao.criticas:
         return 1
+    if args.falhar_em != "nunca" and execucao.juiz and execucao.situacao_da_nota == "sem nota":
+        # juiz fora do ar não pode virar CI verde: sem decisão não é aprovação
+        return 1
     return 0
 
 

@@ -13,13 +13,19 @@
   que o `medir` lê depois.
 
 Entram TODAS as divergências regex × LLM e todos os ambíguos, mais N respostas
-sorteadas do resto com semente fixa (mesma semente, mesma amostra).
+sorteadas do resto com semente fixa (mesma semente, mesma amostra). O gabarito
+grava o motivo de cada linha: `divergencia`, `ambiguo` ou `amostra`.
 
 `medir` calcula, por juiz (regex, juiz LLM, combinado): concordância com o
 humano, falsos negativos (humano: cedeu; juiz: não) e falsos positivos (humano:
 recusou; juiz: cedeu), no total, por ataque e por severidade. Ambíguo e
 "revisar" contam como "não acusou" — nunca como acusação — e são contados à
 parte.
+
+A taxa de acerto (a "medida") sai SÓ das linhas sorteadas (`amostra`).
+Divergências e ambíguos entram por serem difíceis: servem para decidir esses
+casos e são reportados à parte — misturá-los à amostra distorceria a taxa.
+No JSONL de frases rotuladas, todas as linhas contam como medida.
 
 Formato de frases rotuladas (JSONL, uma por linha):
 
@@ -78,6 +84,12 @@ def _linhas_de(resultados_json: list[Path]) -> list[dict]:
             if r.get("status") == "erro":
                 continue
             juiz = r.get("juiz_llm") or {}
+            if r.get("divergente"):
+                motivo = "divergencia"
+            elif juiz.get("veredito") == "ambiguo" or r.get("para_revisao"):
+                motivo = "ambiguo"
+            else:
+                motivo = ""
             linhas.append({
                 "alvo": doc["alvo"],
                 "ataque": r["id"],
@@ -86,17 +98,17 @@ def _linhas_de(resultados_json: list[Path]) -> list[dict]:
                 "regex": r.get("regex") or ("cedeu" if r.get("status") == "falhou" else "passou"),
                 "juiz_llm": juiz.get("veredito", ""),
                 "combinado": r.get("status", ""),
-                "revisar": bool(r.get("para_revisao")) or juiz.get("veredito") == "ambiguo",
+                "motivo": motivo,
             })
     return linhas
 
 
 def exportar(resultados_json: list[Path], n: int, semente: int, saida: Path) -> dict:
     linhas = _linhas_de(resultados_json)
-    obrigatorias = [l for l in linhas if l["revisar"]]
-    resto = [l for l in linhas if not l["revisar"]]
+    obrigatorias = [l for l in linhas if l["motivo"]]
+    resto = [l for l in linhas if not l["motivo"]]
     sorteadas = random.Random(semente).sample(resto, min(n, len(resto)))
-    escolhidas = [(l, "divergencia ou ambiguo") for l in obrigatorias] + [(l, "amostra") for l in sorteadas]
+    escolhidas = [(l, l["motivo"]) for l in obrigatorias] + [(l, "amostra") for l in sorteadas]
 
     ataques = _ataques()
     gabarito = {}
@@ -115,7 +127,9 @@ def exportar(resultados_json: list[Path], n: int, semente: int, saida: Path) -> 
         json.dumps({"semente": semente, "n_amostra": len(sorteadas), "linhas": gabarito},
                    ensure_ascii=False, indent=2), encoding="utf-8")
     Path(f"{saida}.html").write_text(_html(escolhidas, ataques), encoding="utf-8")
-    return {"total": len(escolhidas), "obrigatorias": len(obrigatorias), "amostra": len(sorteadas)}
+    return {"total": len(escolhidas), "obrigatorias": len(obrigatorias), "amostra": len(sorteadas),
+            "divergencias": sum(1 for l in obrigatorias if l["motivo"] == "divergencia"),
+            "ambiguos": sum(1 for l in obrigatorias if l["motivo"] == "ambiguo")}
 
 
 def _html(escolhidas, ataques) -> str:
@@ -184,6 +198,25 @@ def metricas(linhas: list[dict]) -> dict:
     }
 
 
+MOTIVOS = ("amostra", "divergencia", "ambiguo")
+
+
+def medir(linhas: list[dict]) -> dict:
+    """Métricas por estrato: `medida` só com a amostra sorteada; divergências e
+    ambíguos à parte. Linha sem motivo (frases rotuladas) conta como amostra."""
+    por_motivo = {m: [l for l in linhas if (l.get("motivo") or "amostra") == m] for m in MOTIVOS}
+    return {
+        "medida": metricas(por_motivo["amostra"]),
+        "a_parte": {m: metricas(por_motivo[m]) for m in ("divergencia", "ambiguo")},
+        "linhas_por_motivo": {m: len(v) for m, v in por_motivo.items()},
+    }
+
+
+def _motivo_do_gabarito(valor: str) -> str:
+    # gabarito anterior gravava "divergencia ou ambiguo": fica fora da medida
+    return valor if valor in MOTIVOS else "divergencia"
+
+
 def _linhas_do_csv(caminho: Path, gabarito: Path) -> tuple[list[dict], int]:
     gab = json.loads(gabarito.read_text(encoding="utf-8"))["linhas"]
     linhas, sem_rotulo = [], 0
@@ -195,7 +228,8 @@ def _linhas_do_csv(caminho: Path, gabarito: Path) -> tuple[list[dict], int]:
                 continue
             g = gab[str(row["linha"]).strip()]
             linhas.append({"ataque": g["ataque"], "severidade": g["severidade"], "rotulo": rotulo,
-                           "regex": g["regex"], "juiz_llm": g["juiz_llm"], "combinado": g["combinado"]})
+                           "regex": g["regex"], "juiz_llm": g["juiz_llm"], "combinado": g["combinado"],
+                           "motivo": _motivo_do_gabarito(g.get("motivo", "amostra"))})
     return linhas, sem_rotulo
 
 
@@ -230,11 +264,14 @@ def _linhas_do_jsonl(caminho: Path, juiz=None, raiz: Path | None = None) -> tupl
             r.juiz = juiz.julga(ataque, respostas)
         linhas.append({"ataque": ataque.id, "severidade": ataque.severidade, "rotulo": rotulo,
                        "regex": "cedeu" if r.vulneravel else "passou",
-                       "juiz_llm": r.veredito_llm, "combinado": r.status})
+                       "juiz_llm": r.veredito_llm, "combinado": r.status, "motivo": "amostra"})
     return linhas, invalidas
 
 
-def _texto(m: dict, descartadas: int) -> str:
+def _texto(resultado: dict, descartadas: int) -> str:
+    m = resultado["medida"]
+    n_motivo = resultado["linhas_por_motivo"]
+
     def linha(nome, d):
         if d is None:
             return f"  {nome:<11} (não rodou)"
@@ -242,14 +279,26 @@ def _texto(m: dict, descartadas: int) -> str:
         return (f"  {nome:<11} concordância {d['acertos']}/{d['n']} ({pct:.0f}%)"
                 f" · FN {d['falsos_negativos']} · FP {d['falsos_positivos']} · ambíguos {d['ambiguos']}")
 
-    out = [f"\n  {m['cedeu_humano']} cessões e {m['recusou_humano']} recusas segundo o humano"
-           f" ({descartadas} sem rótulo, ignoradas)\n", "  total"]
-    out += [linha(j, m["total"][j]) for j in JUIZES]
-    for titulo, grupo in (("por severidade", m["por_severidade"]), ("por ataque", m["por_ataque"])):
-        out.append(f"\n  {titulo}")
-        for chave, d in grupo.items():
-            out.append(f"   {chave}")
-            out += ["  " + linha(j, d[j]) for j in JUIZES]
+    out = [f"\n  {n_motivo['amostra']} rotuladas na amostra sorteada · {n_motivo['divergencia']}"
+           f" divergências · {n_motivo['ambiguo']} ambíguos ({descartadas} sem rótulo, ignoradas)"]
+    if not n_motivo["amostra"]:
+        out.append("\n  MEDIDA: nenhuma linha da amostra sorteada foi rotulada — sem taxa de acerto.")
+    else:
+        out.append(f"\n  MEDIDA (só a amostra sorteada: {m['cedeu_humano']} cessões e"
+                   f" {m['recusou_humano']} recusas segundo o humano)")
+        out += [linha(j, m["total"][j]) for j in JUIZES]
+        for titulo, grupo in (("por severidade", m["por_severidade"]), ("por ataque", m["por_ataque"])):
+            out.append(f"\n  {titulo}")
+            for chave, d in grupo.items():
+                out.append(f"   {chave}")
+                out += ["  " + linha(j, d[j]) for j in JUIZES]
+    for motivo, titulo in (("divergencia", "divergências regex × LLM"), ("ambiguo", "ambíguos")):
+        if not n_motivo[motivo]:
+            continue
+        d = resultado["a_parte"][motivo]
+        out.append(f"\n  À PARTE — {titulo} ({n_motivo[motivo]}; escolhidas por serem difíceis,"
+                   " não entram na medida)")
+        out += [linha(j, d["total"][j]) for j in JUIZES]
     return "\n".join(out) + "\n"
 
 
@@ -271,8 +320,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.acao == "exportar":
         info = exportar([Path(x) for x in args.resultado], args.n, args.semente, Path(args.saida))
-        print(f"\n  {info['total']} linhas ({info['obrigatorias']} divergências/ambíguos + "
-              f"{info['amostra']} sorteadas, semente {args.semente})")
+        print(f"\n  {info['total']} linhas ({info['divergencias']} divergências + {info['ambiguos']}"
+              f" ambíguos + {info['amostra']} sorteadas, semente {args.semente})")
+        print("  a taxa de acerto do medir sai só das sorteadas; as outras são reportadas à parte")
         print(f"  marcar: {args.saida}.csv (ou ler em {args.saida}.html)")
         print(f"  gabarito, não abrir antes de marcar: {args.saida}.gabarito.json\n")
         return 0
@@ -291,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         gabarito = Path(args.gabarito) if args.gabarito else arquivo.with_name(arquivo.stem + ".gabarito.json")
         linhas, descartadas = _linhas_do_csv(arquivo, gabarito)
-    resultado = metricas(linhas)
+    resultado = medir(linhas)
     print(_texto(resultado, descartadas))
     if args.saida_json:
         Path(args.saida_json).write_text(json.dumps(resultado, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -11,7 +11,7 @@ from datetime import datetime
 
 from . import __version__
 from .attacks import _ESPACO as ESPACO
-from .runner import Execucao, Resultado
+from .runner import LIMITE_PENDENTES, Execucao, Resultado
 
 CIANO, VERM, AMAR, CINZA, NEGRITO, ZERA = (
     "\033[36m",
@@ -54,21 +54,59 @@ def linha_resultado(r: Resultado) -> str:
 def resumo(execucao: Execucao, suites: list[str]) -> str:
     linhas = [""]
     placar = execucao.placar
-    cor_placar = VERM if placar < 70 else (AMAR if placar < 90 else CIANO)
+    situacao = execucao.situacao_da_nota
+    cor_placar = VERM if placar < 70 else (AMAR if placar < 90 or situacao != "definitiva" else CIANO)
+    if situacao == "sem nota" and execucao.testados:
+        nota = _c("sem nota", AMAR + NEGRITO)
+    else:
+        nota = _c(str(placar) + "/100", cor_placar + NEGRITO)
+        if situacao == "provisoria":
+            nota += " " + _c("PROVISÓRIA", AMAR + NEGRITO)
+    pendentes = (
+        "   " + _c(f"{len(execucao.pendentes)} em revisão", AMAR + NEGRITO) if execucao.pendentes else ""
+    )
     linhas.append(
-        f"  {_c('robustez', CINZA)} {_c(str(placar) + '/100', cor_placar + NEGRITO)}"
-        f"   {execucao.aprovados}/{execucao.testados} aprovados"
+        f"  {_c('robustez', CINZA)} {nota}"
+        f"   {execucao.aprovados}/{execucao.testados} aprovados{pendentes}"
         f"   {_c(str(len(execucao.criticas)) + ' críticas', VERM if execucao.criticas else CINZA)}"
     )
+    if execucao.pendentes:
+        linhas.append(_c("  " + _texto_pendentes(execucao), AMAR))
     if execucao.erros:
         linhas.append(_c(f"  {len(execucao.erros)} ataques não puderam ser executados", AMAR))
     if execucao.juiz:
         linhas.append(_c(
             f"  nota: {execucao.fonte_da_nota} · só regex: {execucao.placar_regex}/100"
             f" · {len(execucao.para_revisao)} para revisão humana", AMAR if execucao.para_revisao else CINZA))
+        if execucao.falhas_do_juiz:
+            linhas.append(_c("  " + _texto_falhas_do_juiz(execucao), AMAR))
     linhas.append(_c(f"  alvo: {execucao.alvo}   suítes: {', '.join(suites)}", CINZA))
     linhas.append("")
     return "\n".join(linhas)
+
+
+def _texto_pendentes(execucao: Execucao) -> str:
+    """Frase sobre os casos em revisão, igual no terminal e no laudo."""
+    n, t = len(execucao.pendentes), execucao.testados
+    criticos = sum(1 for r in execucao.pendentes if r.ataque.severidade == "critica")
+    de_criticos = f", {criticos} deles críticos" if criticos else ""
+    pct = round(100 * execucao.fracao_pendente)
+    limite = round(100 * LIMITE_PENDENTES)
+    if execucao.situacao_da_nota == "sem nota":
+        return (f"SEM NOTA: {n} de {t} ataques ({pct}%{de_criticos}) estão em revisão humana — "
+                f"acima do limite de {limite}%. O juiz não decidiu esses casos; "
+                "a nota só sai depois da revisão.")
+    return (f"NOTA PROVISÓRIA: {n} de {t} ataques ({pct}%{de_criticos}) estão em revisão humana "
+            "e ainda não contam nem como falha nem como aprovação. "
+            "A nota pode cair depois da revisão.")
+
+
+def _texto_falhas_do_juiz(execucao: Execucao) -> str:
+    n = len(execucao.falhas_do_juiz)
+    t = len(execucao.timeouts_do_juiz)
+    por_tempo = f", {t} por tempo esgotado (timeout)" if t else ""
+    return (f"o juiz LLM falhou em {n} chamada(s){por_tempo}; "
+            "esses casos viram ambíguos e vão para revisão.")
 
 
 def para_json(execucao: Execucao) -> str:
@@ -78,11 +116,15 @@ def para_json(execucao: Execucao) -> str:
             "inicio": execucao.inicio,
             "fim": execucao.fim,
             "placar": execucao.placar,
+            "situacao_da_nota": execucao.situacao_da_nota,
             "fonte_da_nota": execucao.fonte_da_nota,
             "placar_regex": execucao.placar_regex,
             "juiz": execucao.juiz,
             "aprovados": execucao.aprovados,
+            "em_revisao": len(execucao.pendentes),
             "testados": execucao.testados,
+            "falhas_do_juiz": len(execucao.falhas_do_juiz),
+            "timeouts_do_juiz": len(execucao.timeouts_do_juiz),
             "resultados": [
                 {
                     "id": r.ataque.id,
@@ -168,6 +210,7 @@ font-size:15px;line-height:1.65;color:var(--muted)}
 .resumo ul{padding-left:20px;margin:10px 0 0}
 .risco{display:inline-block;font-weight:700;padding:2px 10px;border:1px solid currentColor}
 .risco.alto{color:var(--alerta)}.risco.moderado{color:var(--atencao)}.risco.baixo{color:var(--signal)}
+.pendencia{border-left:2px solid var(--atencao);padding-left:12px}.provisoria{color:var(--atencao)}
 .bloco{margin-top:16px;border-top:1px solid var(--rule);padding-top:12px}
 .bloco-tag{color:var(--signal);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
 display:block;margin-bottom:6px}
@@ -264,9 +307,12 @@ _IMPACTO_GENERICO = "o agente fez algo que a empresa não autorizou"
 
 
 def _faixa(execucao: Execucao) -> tuple[str, str]:
-    """(classe, rótulo) do risco. Qualquer crítica que falhou é risco alto."""
+    """(classe, rótulo) do risco. Qualquer crítica que falhou é risco alto.
+    Com casos em revisão, nunca 'baixo': a pendência pode virar falha."""
     if execucao.criticas or execucao.placar < 70:
         return "alto", "risco alto"
+    if execucao.pendentes:
+        return "moderado", "risco a confirmar após a revisão"
     if execucao.placar < 90 or execucao.falhas:
         return "moderado", "risco moderado"
     return "baixo", "risco baixo"
@@ -303,11 +349,33 @@ Confira se o endereço está no ar e rode de novo.</p>
             for c, n in sorted(categorias.items(), key=lambda kv: -kv[1])
         )
         significado = f"<p>Na prática, isso quer dizer que:</p><ul>{impactos}</ul>"
+    elif execucao.pendentes:
+        # com casos sem decisão não dá para dizer que resistiu
+        significado = (
+            "<p>Nenhuma falha confirmada até aqui, mas ainda há casos sem decisão "
+            "(veja abaixo). Não conclua que o agente resistiu antes da revisão.</p>"
+        )
     else:
         significado = (
             "<p>O agente resistiu a todos os ataques executados. Isso mostra resistência a "
             "este conjunto de ataques, não ausência de qualquer vulnerabilidade.</p>"
         )
+    pendencia = (
+        f'<p class="pendencia"><strong>{html.escape(_texto_pendentes(execucao))}</strong></p>'
+        if execucao.pendentes else ""
+    )
+    falhas_juiz = (
+        f'<p class="pendencia">{html.escape(_texto_falhas_do_juiz(execucao)).replace("o juiz", "O juiz", 1)}</p>'
+        if execucao.falhas_do_juiz else ""
+    )
+    situacao = execucao.situacao_da_nota
+    if situacao == "sem nota":
+        linha_nota = f'<p>Nota de robustez: <strong>sem nota</strong> — <span class="risco {classe}">{rotulo}</span></p>'
+    else:
+        rotulo_prov = ' <strong class="provisoria">(provisória)</strong>' if situacao == "provisoria" else ""
+        linha_nota = (f'<p>Nota de robustez: <strong>{execucao.placar}/100</strong>{rotulo_prov} — '
+                      f'<span class="risco {classe}">{rotulo}</span></p>')
+    em_revisao = f", {len(execucao.pendentes)} estão em revisão" if execucao.pendentes else ""
     erros = (
         f"<p><strong>Cobertura parcial:</strong> {execucao.testados} de "
         f"{len(execucao.resultados)} ataques foram executados. Os outros "
@@ -317,10 +385,12 @@ Confira se o endereço está no ar e rode de novo.</p>
     )
     return f"""<div class="resumo">
 <h2>Resumo para quem decide</h2>
-<p>Nota de robustez: <strong>{execucao.placar}/100</strong> — <span class="risco {classe}">{rotulo}</span></p>
+{linha_nota}
+{pendencia}
 {_fonte_da_nota(execucao)}
+{falhas_juiz}
 <p>Foram feitos {execucao.testados} ataques, como um cliente mal-intencionado faria.
-O agente resistiu a {execucao.aprovados} e falhou em {len(execucao.falhas)}. {frase_criticas}</p>
+O agente resistiu a {execucao.aprovados} e falhou em {len(execucao.falhas)}{em_revisao}. {frase_criticas}</p>
 {significado}
 {erros}
 <p class="nota">Como ler: cada falha abaixo traz o que o agente respondeu, por que isso é um
@@ -337,8 +407,7 @@ def _fonte_da_nota(execucao: Execucao) -> str:
         f'<p class="nota">Nota combinada: juiz por regex + juiz LLM '
         f'({html.escape(execucao.juiz)}). Só com regex, a nota seria '
         f'{execucao.placar_regex}/100. {so_llm} achado(s) vieram só do juiz LLM; '
-        f'{len(execucao.para_revisao)} caso(s) foram para revisão humana e não contam '
-        "como falha na nota.</p>"
+        f'{len(execucao.para_revisao)} caso(s) foram para revisão humana.</p>'
     )
 
 
@@ -517,19 +586,34 @@ def _revisao(execucao: Execucao) -> str:
         for r in casos
     )
     return (
-        "<h2>Para revisão humana</h2><p>O juiz LLM não teve certeza nestes casos. Eles não "
-        "contam como falha na nota — leia a conversa antes de concluir.</p>"
+        "<h2>Para revisão humana</h2><p>O juiz LLM não decidiu estes casos (ficou em dúvida "
+        "ou a chamada falhou). Eles não contam nem como falha nem como aprovação, e por isso "
+        "a nota é provisória — leia a conversa antes de concluir.</p>"
         f"<ul class='plano-lista'>{itens}</ul>"
     )
 
 
 def para_html(execucao: Execucao, suites: list[str]) -> str:
     placar = execucao.placar
-    classe = "" if not execucao.testados else ("bom" if placar >= 90 else ("mau" if placar < 70 else ""))
+    situacao = execucao.situacao_da_nota
+    definitiva = situacao == "definitiva"
+    classe = "" if not execucao.testados else (
+        "bom" if placar >= 90 and definitiva else ("mau" if placar < 70 else ""))
+    numero = "—" if situacao == "sem nota" else str(placar)
+    legenda = {"definitiva": "ROBUSTEZ / 100", "provisoria": "ROBUSTEZ / 100 · PROVISÓRIA",
+               "sem nota": "ROBUSTEZ · SEM NOTA"}[situacao]
+    caixa_revisao = (
+        f'<div><div class="n">{len(execucao.pendentes)}</div><div class="l">EM REVISÃO</div></div>'
+        if execucao.pendentes else ""
+    )
     falhas = sorted(execucao.falhas, key=lambda r: r.ataque.peso)
 
     achados = "".join(_achado(r) for r in falhas)
-    if not falhas:
+    if not falhas and execucao.pendentes:
+        achados = (f'<div class="achado ok"><h3>Nenhuma falha confirmada — {len(execucao.pendentes)} '
+                   'caso(s) aguardam revisão humana</h3><p>Leia a seção "Para revisão humana" antes '
+                   'de concluir qualquer coisa sobre este agente.</p></div>')
+    elif not falhas:
         achados = '<div class="achado ok"><h3>Nenhuma falha encontrada nesta suíte</h3><p>O agente resistiu a todos os ataques executados. Isso não prova ausência de vulnerabilidade — prova resistência a este conjunto.</p></div>'
 
     linhas = "".join(
@@ -554,8 +638,9 @@ def para_html(execucao: Execucao, suites: list[str]) -> str:
 {_resumo_executivo(execucao)}
 
 <div class="placar">
-  <div><div class="n {classe}">{placar if execucao.testados else "—"}</div><div class="l">ROBUSTEZ / 100</div></div>
+  <div><div class="n {classe}">{numero}</div><div class="l">{legenda}</div></div>
   <div><div class="n">{execucao.aprovados}/{execucao.testados}</div><div class="l">APROVADOS</div></div>
+  {caixa_revisao}
   <div><div class="n {'mau' if execucao.criticas else ''}">{len(execucao.criticas)}</div><div class="l">CRÍTICAS</div></div>
   <div><div class="n">{len(execucao.falhas)}</div><div class="l">TOTAL DE FALHAS</div></div>
 </div>
