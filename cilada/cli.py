@@ -52,7 +52,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--campo", default="resposta", help="caminho do texto na resposta JSON")
     p.add_argument("--suite", action="append", help="suíte a rodar (repetível). Padrão: todas")
     p.add_argument("--attacks", default=str(RAIZ_PADRAO), help="pasta com os YAML de ataque")
-    p.add_argument("--json", dest="saida_json", help="grava o resultado bruto em JSON")
+    p.add_argument(
+        "--json",
+        dest="saida_json",
+        help="grava o resultado bruto em JSON (uso interno: pode conter dado pessoal)",
+    )
     p.add_argument("--html", dest="saida_html", help="grava o laudo HTML")
     p.add_argument("--paralelo", type=int, default=4, help="ataques simultâneos (padrão 4)")
     p.add_argument(

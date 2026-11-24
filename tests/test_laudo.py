@@ -127,3 +127,84 @@ def test_laudos_de_exemplo_versionados_sao_autocontidos_e_sem_dado():
         doc = arquivo.read_text(encoding="utf-8")
         assert "<script" not in doc.lower() and not re.search(r"\bsrc=", doc)
         assert not re.search(r"\d{3}\.\d{3}\.\d{3}-\d{2}|\(\d{2}\)\s?\d{4,5}-\d{4}", doc)
+
+
+# ---- máscara: formatos sem pontuação e falso positivo (revisão do PR #2) ----
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("entrada,marcador", [
+    ("123.456.789-09", "[CPF omitido]"),
+    ("12345678909", "[CPF omitido]"),          # dígito verificador confere
+    ("123456789-09", "[CPF omitido]"),
+    ("12.345.678/0001-95", "[CNPJ omitido]"),
+    ("12345678000195", "[CNPJ omitido]"),      # dígito verificador confere
+    ("(11) 98765-4321", "[telefone omitido]"),
+    ("(11)98765-4321", "[telefone omitido]"),
+    ("11 98765-4321", "[telefone omitido]"),
+    ("11987654321", "[telefone omitido]"),
+    ("+55 11 98765-4321", "[telefone omitido]"),
+    ("98765-4321", "[telefone omitido]"),
+    ("CEP 01310-100", "[CEP omitido]"),
+    ("cep: 01310100", "[CEP omitido]"),
+    ("01.310-100", "[CEP omitido]"),
+    ("fulano@exemplo.com.br", "[e-mail omitido]"),
+])
+def test_mascara_pega_cada_formato(entrada, marcador):
+    saida = report.mascara(f"dado: {entrada} fim")
+    assert marcador in saida
+    assert entrada not in saida
+
+
+@pytest.mark.parametrize("texto", [
+    "protocolo 12345-678",          # tem formato de CEP, mas sem a palavra CEP
+    "protocolo 2026-55871",
+    "pedido 12345678901",           # 11 dígitos com dígito verificador de CPF inválido
+    "pedido 5510, R$ 3.780, 3 a 5 dias úteis, art. 30",
+    "nota 12345678000100",          # 14 dígitos com dígito verificador de CNPJ inválido
+])
+def test_mascara_nao_inventa_dado_pessoal(texto):
+    assert report.mascara(texto) == texto
+
+
+# ---- nenhum ataque executado: sem nota (revisão do PR #2) -------------------
+
+class AlvoForaDoAr:
+    nome = "fora do ar"
+
+    def conversa(self, turnos):
+        raise ConnectionError("recusou")
+
+
+def _execucao_com(alvos):
+    ataques = carregar(RAIZ)
+    resultados = [executa_um(a, alvos(i)) for i, a in enumerate(ataques)]
+    return Execucao(alvo="x", resultados=resultados, inicio="2026-01-01T00:00:00", fim="x")
+
+
+def test_nenhum_ataque_executado_da_sem_nota_e_sem_contradicao():
+    execucao = _execucao_com(lambda _i: AlvoForaDoAr())
+    assert execucao.testados == 0
+    doc = report.para_html(execucao, ["ecommerce"])
+    resumo = doc[doc.index("Resumo para quem decide"):doc.index("Achados")]
+    assert "Sem nota" in resumo
+    assert "risco alto" not in resumo and "risco baixo" not in resumo
+    assert "resistiu" not in resumo
+    assert ">—<" in doc, "o placar mostra traço, não 0"
+
+
+def test_cobertura_parcial_aparece_no_resumo():
+    execucao = _execucao_com(lambda i: AlvoForaDoAr() if i % 2 else AlvoFixo(SEGURA))
+    assert 0 < execucao.testados < len(execucao.resultados)
+    doc = report.para_html(execucao, ["ecommerce"])
+    assert f"{execucao.testados} de {len(execucao.resultados)} ataques foram executados" in doc
+
+
+def test_lgpd_fala_em_pode_configurar_incidente():
+    assert "pode configurar incidente" in report.IMPACTO["lgpd-dados-pessoais"]
+
+
+def test_rodape_avisa_que_o_json_e_interno():
+    doc = report.para_html(_execucao(SEGURA), ["ecommerce"])
+    assert "artefato" in doc and "interno" in doc and "não deve ser entregue ao cliente" in doc
