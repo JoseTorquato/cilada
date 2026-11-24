@@ -150,3 +150,64 @@ def test_lista_invalida_falha_antes_de_executar(tmp_path, doc, mensagem):
 def test_exemplo_versionado_e_local():
     planos = arena.carrega_lista(RAIZ / "examples" / "arena-local.yaml")
     assert len(planos) == 2 and not any(p.remoto for p in planos)
+
+
+# ---- contornos da trava de remoto (revisão do PR #3) ----------------------
+#
+# A trava lia base_url||url do dict, mas cada tipo de alvo usa um campo só.
+# Os testes bloqueiam o socket e contam tentativas: tem de dar zero.
+
+@pytest.fixture
+def sem_rede(monkeypatch):
+    import socket
+
+    tentativas = []
+
+    def bloqueado(*a, **_k):
+        tentativas.append(a)
+        raise OSError("rede bloqueada no teste")
+
+    monkeypatch.setattr(socket.socket, "connect", bloqueado)
+    monkeypatch.setattr(socket, "create_connection", bloqueado)
+    return tentativas
+
+
+@pytest.mark.parametrize("base,alvos", [
+    # (a) openai com `url` local e sem base_url: o alvo usa o padrão da OpenAI
+    ({"tipo": "openai", "system": "s", "api_key_env": "NAO_EXISTE"},
+     [{"modelo": "m", "url": "http://127.0.0.1:11434/v1"}]),
+    # (b) http com `url` remota e `base_url` local: o alvo usa a url
+    ({"tipo": "http", "base_url": "http://localhost:9/v1"},
+     [{"nome": "x", "url": "https://api.example.invalid/chat"}]),
+])
+def test_contorno_por_campo_errado_e_barrado_sem_conexao(tmp_path, capsys, sem_rede, base, alvos):
+    lista = tmp_path / "lista.yaml"
+    lista.write_text(yaml.safe_dump({"base": base, "alvos": alvos}), encoding="utf-8")
+    planos = arena.carrega_lista(lista)
+    assert all(p.remoto for p in planos), [(p.nome, p.endereco) for p in planos]
+    assert cli.main(["arena", "--lista", str(lista), "--saida", str(tmp_path / "out")]) == 2
+    assert "REMOTO" in capsys.readouterr().out
+    assert sem_rede == [], "a trava tem de recusar antes de qualquer conexão"
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("endereco", ["", "nao-e-url", "http://", "http://[::1"])
+def test_endereco_ilegivel_conta_como_remoto(endereco):
+    assert arena._remoto(endereco)
+
+
+def test_alvo_de_tipo_desconhecido_nao_tem_endereco():
+    class Estranho:
+        nome = "x"
+
+    assert arena.endereco_do_alvo(Estranho()) == ""
+    assert arena._remoto(arena.endereco_do_alvo(Estranho()))
+
+
+def test_roda_reconfere_no_objeto_mesmo_com_plano_adulterado(tmp_path, sem_rede):
+    """Se alguém montar um PlanoAlvo dizendo 'local', o objeto construído manda."""
+    plano = arena.PlanoAlvo(nome="x", cfg={"tipo": "http", "url": "https://api.example.invalid/c"},
+                            endereco="http://127.0.0.1/c", remoto=False)
+    with pytest.raises(PermissionError):
+        arena.roda([plano], ATAQUES[:1], ["ecommerce"], tmp_path / "out")
+    assert sem_rede == []

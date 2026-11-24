@@ -34,7 +34,7 @@ import yaml
 from . import compara, report
 from .attacks import Ataque
 from .runner import Execucao, executa
-from .targets import de_config
+from .targets import AlvoHTTP, AlvoOpenAI, de_config
 
 _LOCAIS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
@@ -47,13 +47,28 @@ class PlanoAlvo:
     remoto: bool
 
 
-def _endereco(cfg: dict) -> str:
-    return cfg.get("base_url") or cfg.get("url") or ("https://api.openai.com/v1" if cfg.get("tipo") == "openai" else "")
+def endereco_do_alvo(alvo: object) -> str:
+    """O endereço que o alvo construído vai de fato usar — não o que a config diz.
+
+    Ler do dict abria brecha: `url` num alvo openai (que só usa base_url) ou
+    `base_url` num alvo http (que só usa url) faziam o plano dizer "local"
+    enquanto a conexão ia para a nuvem. Tipo desconhecido devolve "" e é
+    tratado como remoto.
+    """
+    if isinstance(alvo, AlvoHTTP):
+        return alvo.url
+    if isinstance(alvo, AlvoOpenAI):
+        return alvo.base_url
+    return ""
 
 
 def _remoto(endereco: str) -> bool:
-    host = urlparse(endereco).hostname or ""
-    return host.lower() not in _LOCAIS
+    """Falha fechada: endereço vazio ou sem host legível conta como remoto."""
+    try:
+        host = urlparse(endereco).hostname or ""
+    except ValueError:
+        return True
+    return not host or host.lower() not in _LOCAIS
 
 
 def carrega_lista(caminho: Path) -> list[PlanoAlvo]:
@@ -84,8 +99,8 @@ def carrega_lista(caminho: Path) -> list[PlanoAlvo]:
         if nome in vistos:
             raise ValueError(f"{caminho}: nome de alvo repetido '{nome}' — o comparativo os confundiria")
         vistos.add(nome)
-        de_config(cfg)  # valida a config agora, não no meio da execução
-        endereco = _endereco(cfg)
+        alvo = de_config(cfg)  # valida a config agora, não no meio da execução
+        endereco = endereco_do_alvo(alvo)
         planos.append(PlanoAlvo(nome=nome, cfg=cfg, endereco=endereco, remoto=_remoto(endereco)))
     return planos
 
@@ -100,7 +115,7 @@ def plano_texto(planos: list[PlanoAlvo], ataques: list[Ataque]) -> str:
     linhas = ["", f"  arena · {len(planos)} alvo(s) · {len(ataques)} ataques · {por_alvo} chamadas por alvo", ""]
     for p in planos:
         onde = "REMOTO" if p.remoto else "local"
-        linhas.append(f"  {onde:<6}  {p.nome:<34} {p.endereco}  ({por_alvo} chamadas)")
+        linhas.append(f"  {onde:<6}  {p.nome:<34} {p.endereco or '(endereço desconhecido)'}  ({por_alvo} chamadas)")
     remotos = sum(1 for p in planos if p.remoto)
     linhas += [
         "",
@@ -135,7 +150,11 @@ def roda(
     execucoes: list[Execucao] = []
     jsons: list[str] = []
     for p in planos:
-        execucao = executa(ataques, de_config(p.cfg), paralelo, ao_terminar=ao_terminar)
+        alvo = de_config(p.cfg)
+        # reconfere no objeto que vai rodar: o plano e a execução não podem divergir
+        if _remoto(endereco_do_alvo(alvo)) and not permitir_remoto:
+            raise PermissionError(f"alvo {p.nome!r} é remoto; use --permitir-remoto")
+        execucao = executa(ataques, alvo, paralelo, ao_terminar=ao_terminar)
         execucoes.append(execucao)
         destino = saida / f"{_arquivo(p.nome)}.json"
         destino.write_text(report.para_json(execucao), encoding="utf-8")
