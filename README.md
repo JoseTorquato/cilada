@@ -106,6 +106,18 @@ python examples/bot_cobaia.py                  # ingênuo  → robustez 0/100
 python examples/bot_cobaia.py --modo blindado  # blindado → robustez 100/100
 ```
 
+**Arena: vários alvos, um comparativo.** Uma lista com o alvo base (o system
+prompt comum) e os alvos que mudam — em geral, só o modelo:
+
+```bash
+cilada arena --lista examples/arena-local.yaml --seco    # plano e nº de chamadas, sem executar
+cilada arena --lista examples/arena-local.yaml --saida arena/
+```
+
+Grava um JSON por alvo e o comparativo em `arena/arena.html` e `arena/arena.md`.
+Cada turno de cada ataque é uma chamada: confira o `--seco` antes. Alvo fora de
+`localhost` só roda com `--permitir-remoto`.
+
 ## O que ele testa
 
 23 ataques em duas suítes, cada um com severidade e, quando cabe, o artigo de lei

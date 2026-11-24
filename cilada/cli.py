@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from . import __version__, report
+from . import __version__, arena, report
 from .attacks import carregar
 from .runner import executa
 from .targets import AlvoHTTP, de_config
@@ -34,6 +34,33 @@ def _monta_alvo(args):
     raise SystemExit("informe --target URL ou --config arquivo.yaml")
 
 
+def _arena(args, ataques, suites) -> int:
+    if not args.lista:
+        raise SystemExit("arena: informe --lista arquivo.yaml")
+    try:
+        planos = arena.carrega_lista(Path(args.lista))
+    except (ValueError, KeyError) as erro:
+        print(f"  lista da arena inválida: {erro}", file=sys.stderr)
+        return 2
+    print(arena.plano_texto(planos, ataques))
+    if args.seco:
+        print("  --seco: nada foi executado.\n")
+        return 0
+    try:
+        execucoes = arena.roda(
+            planos, ataques, suites, Path(args.saida), args.paralelo,
+            permitir_remoto=args.permitir_remoto,
+            ao_terminar=lambda r: print(report.linha_resultado(r)),
+        )
+    except PermissionError as erro:
+        print(f"  {erro}\n", file=sys.stderr)
+        return 2
+    for ex in execucoes:
+        print(report.resumo(ex, suites))
+    print(f"  comparativo: {Path(args.saida) / 'arena.html'}\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # console do Windows costuma abrir em cp1252 e picotar os acentos do laudo
     for fluxo in (sys.stdout, sys.stderr):
@@ -44,7 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         prog="cilada",
         description="Suíte adversarial em português brasileiro para agentes de IA.",
     )
-    p.add_argument("comando", choices=["run", "list"], help="run: ataca um alvo. list: lista ataques.")
+    p.add_argument(
+        "comando",
+        choices=["run", "list", "arena"],
+        help="run: ataca um alvo. list: lista ataques. arena: vários alvos e o comparativo.",
+    )
     p.add_argument("--target", help="URL do endpoint do agente (POST JSON)")
     p.add_argument("--config", help="arquivo de configuração com o bloco alvo:")
     p.add_argument("--nome", help="nome do alvo no laudo")
@@ -65,6 +96,14 @@ def main(argv: list[str] | None = None) -> int:
         default="critica",
         help="quando sair com código 1 — use em CI (padrão: critica)",
     )
+    p.add_argument("--lista", help="arena: arquivo com base: e alvos:")
+    p.add_argument("--seco", action="store_true", help="arena: mostra o plano e as chamadas, sem executar")
+    p.add_argument("--saida", default="arena", help="arena: pasta dos JSON e do comparativo (padrão: arena/)")
+    p.add_argument(
+        "--permitir-remoto",
+        action="store_true",
+        help="arena: permite alvo fora de localhost (API paga custa por chamada)",
+    )
     p.add_argument("--version", action="version", version=f"cilada {__version__}")
     args = p.parse_args(argv)
 
@@ -74,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
     if not ataques:
         print("nenhum ataque encontrado", file=sys.stderr)
         return 2
+
+    if args.comando == "arena":
+        return _arena(args, ataques, suites)
 
     if args.comando == "list":
         for a in ataques:
