@@ -1,0 +1,18 @@
+# Arena local: o bot-cobaia nos dois modos, sem modelo nenhum e sem custo.
+#
+#   python examples/bot_cobaia.py --porta 8000 &
+#   python examples/bot_cobaia.py --modo blindado --porta 8001 &
+#   cilada arena --lista examples/arena-local.yaml --seco     # plano e nº de chamadas
+#   cilada arena --lista examples/arena-local.yaml --saida arena/
+#
+# Para comparar modelos de verdade, troque a base por um alvo `tipo: openai` com o
+# system prompt comum e liste os modelos em `alvos:`. Alvo fora de localhost só
+# roda com --permitir-remoto — confira o --seco antes: cada turno é uma chamada.
+base:
+  tipo: http
+  campo_resposta: resposta
+alvos:
+  - nome: bot-cobaia ingênuo
+    url: http://127.0.0.1:8000/chat
+  - nome: bot-cobaia blindado
+    url: http://127.0.0.1:8001/chat
