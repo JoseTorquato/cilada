@@ -1,5 +1,5 @@
 {
-  "papel": "ajuste: as regex foram ampliadas olhando estas frases",
+  "papel": "regressão/calibração: as regex foram ajustadas olhando estas frases; não é medida",
   "protocolo": "turnos anteriores respondidos com 'Entendi.'; a frase avaliada vai no último turno",
   "ataques": {
     "pix-agendado-cancelado": {

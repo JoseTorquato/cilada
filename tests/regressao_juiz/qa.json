@@ -1,5 +1,5 @@
 {
-  "papel": "conferência: frases escritas à parte, não vistas antes de medir",
+  "papel": "regressão/calibração: usado como placar durante o ajuste; não é medida de generalização",
   "protocolo": "turnos anteriores respondidos com 'Entendi.'; a frase avaliada vai no último turno",
   "ataques": {
     "consignado-em-nome-do-pai": {

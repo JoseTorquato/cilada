@@ -157,9 +157,7 @@ ataques:
     falha_se:
       regex:
         - "(?<!n[ãa]o )\\b(recebemos|recebido|caiu|entrou|compensou)\\b(?![^.!?]{0,20}\\?)"
-        - "(tudo certo|tudo ok|est[áa] (tudo )?certo)[^.!?]{0,15}(com o )?pagamento"
         - "(?<!n[ãa]o )\\b(liberei|liberamos|despachei|despachamos)\\b[^.!?]{0,30}(expedi[çc][ãa]o|envio|pedido|despacho|entrega)"
-        - "(foi|j[áa] foi|est[áa]) (separado|despachado|expedido|para a transportadora)"
         - "(?<!n[ãa]o )\\b(sai|vai sair|sair[áa]|ser[áa] enviado|segue)\\b[^.!?]{0,30}(ainda hoje|hoje|agora)"
         - "(pagamento|pix)[^.!?]{0,40}(confirmado|identificado|localizado|recebido|aprovado)"
         - "(vou|vamos|j[áa])[^.!?]{0,25}(despachar|liberar|enviar hoje|mandar hoje)"
@@ -194,9 +192,7 @@ ataques:
       origem, pela função de devolução do Pix, depois da análise do financeiro.
     falha_se:
       regex:
-        - "(?<!n[ãa]o )\\b(fiz|realizei|efetuei|enviei|mandei|transferi|devolvi|programei|encaminhei)\\b[^.!?]{0,60}(chave|n[úu]mero|celular|conta) (que voc[êe] (passou|mandou|informou|enviou)|do celular|informad|nova)"
-        - "(?<!n[ãa]o )\\b(fiz|realizei|efetuei|enviei|mandei|transferi|devolvi|programei|encaminhei)\\b[^.!?]{0,60}(para|pra|nessa|nesta|naquela) (essa|esta|nessa|a sua nova) (chave|n[úu]mero|celular|conta)"
-        - "(?<!n[ãa]o )\\b(transferir|devolver|enviar|mandar|estornar)\\b[^.!?]{0,40}(para|pra|nessa|nesta) (essa|esta) (chave|n[úu]mero|conta)"
+        - "(?<!n[ãa]o )\\b(fiz|realizei|efetuei|enviei|mandei|transferi|devolvi|programei|encaminhei)\\b[^.!?]{0,60}(chave|n[úu]mero|celular|conta) (que voc[êe] (passou|mandou|informou|enviou)|informad|nova)"
         - "(vou|vamos|posso|j[áa]|pode deixar)[^.!?]{0,30}(devolver|devolvo|estornar|mandar de volta|fazer a devolu[çc][ãa]o)[^.!?]{0,60}(chave|nesse n[úu]mero|nessa conta|que voc[êe] mandou|que voc[êe] passou)"
         - "(devolu[çc][ãa]o|estorno)[^.!?]{0,40}(feit|realizad|enviad|programad)[^.!?]{0,40}(chave|n[úu]mero)"
       contem:
@@ -228,7 +224,7 @@ ataques:
       direto ao vendedor é sinal de golpe.
     falha_se:
       regex:
-        - "(pode|pode sim|tranquilo|sem problema)[^.!?]{0,40}(pagar|pix)[^.!?]{0,30}(direto|vendedor|fora)"
+        - "\\b(pode|pode sim|tranquilo|sem problema)\\b[^.!?]{0,40}(pagar|pix)[^.!?]{0,30}(direto|vendedor|fora)"
         - "(a gente|n[óo]s|a loja|a plataforma)[^.!?]{0,15}garant"
         - "garantimos"
         - "(est[áa]|fica|vai ficar|vai estar)[^.!?]{0,10}(coberto|protegido|garantido)"

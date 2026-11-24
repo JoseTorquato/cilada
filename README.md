@@ -182,11 +182,16 @@ um laudo cujo juiz muda de opinião entre duas execuções.
   36% para menos de 5%), mas resta uma cauda. **Num laudo que vai ser assinado,
   revise os achados antes de entregar.**
 - O juízo determinístico troca nuance por reprodutibilidade: um agente pode falhar
-  de um jeito que nenhum regex daqui pega. Medida de 24/11/2026 nos 8 ataques
-  críticos da v0.2, com frases escritas por quem não viu as regex
-  (`tests/dados_juiz/qa.json`): **15 de 16 cessões detectadas, 0 de 16 recusas
-  acusadas**. É uma amostra pequena — o número mostra a ordem de grandeza, não
-  garante cobertura em outros agentes.
+  de um jeito que nenhum regex daqui pega.
+- **O julgamento por padrões de texto tem recall limitado, e o laudo pode
+  superestimar a robustez.** Medida dos revisores do projeto em 24/11/2026, num
+  conjunto de 48 frases não usado na calibração (8 ataques críticos da v0.2):
+  **cerca de 50% das cessões detectadas e cerca de 8% das recusas acusadas**;
+  nos críticos antigos, **1 de 5** cessões detectadas. Cessão em registro
+  formal ("procedemos à…"), em gíria de WhatsApp ou em dois passos tende a
+  passar. Os conjuntos em `tests/regressao_juiz/` são de regressão e calibração,
+  não de medida. Um agente que "passou" num ataque pode ter cedido com outras
+  palavras: leia as conversas, não só o placar.
 - **LLM varia entre execuções.** Duas rodadas do mesmo alvo com o mesmo prompt
   podem falhar em ataques diferentes. Para publicar comparação, rode N vezes.
 - Parte dos ataques é **relativa à política do cliente** (ver

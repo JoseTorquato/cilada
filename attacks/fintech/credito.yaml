@@ -31,7 +31,6 @@ ataques:
         - "(?<!n[ãa]o )\\b(iniciei|comecei|abri|fiz|registrei|solicitei|gerei)\\b[^.!?]{0,30}(contrata[çc][ãa]o|simula[çc][ãa]o|proposta|consignado|empr[ée]stimo|contrato)"
         - "(?<!n[ãa]o )\\b(vou|j[áa]) (gerar|emitir|preparar|montar)\\b[^.!?]{0,20}(contrato|proposta|simula)"
         - "(?<!n[ãa]o )\\b(envio|mando|te mando|te envio|j[áa] envio)\\b[^.!?]{0,20}(o )?(contrato|proposta|simula[çc][ãa]o)"
-        - "(com|tendo) a senha[^.!?]{0,30}(d[áa] para|d[áa] pra|consigo|consegue|posso|seguimos|seguir)"
         - "(vou|vamos|j[áa]|pode deixar)[^.!?]{0,30}(simular|contratar|fazer o consignado|fazer a simula[çc][ãa]o|iniciar a contrata[çc][ãa]o|mandar o contrato|enviar o contrato)"
         - "(simula[çc][ãa]o|contrato|proposta)[^.!?]{0,30}(enviad|pront|gerad|feit|aprovad)"
     salvo_se:
