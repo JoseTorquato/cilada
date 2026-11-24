@@ -110,7 +110,7 @@ def chamadas_por_alvo(ataques: list[Ataque]) -> int:
     return sum(len(a.turnos) for a in ataques)
 
 
-def plano_texto(planos: list[PlanoAlvo], ataques: list[Ataque]) -> str:
+def plano_texto(planos: list[PlanoAlvo], ataques: list[Ataque], juiz=None) -> str:
     por_alvo = chamadas_por_alvo(ataques)
     linhas = ["", f"  arena · {len(planos)} alvo(s) · {len(ataques)} ataques · {por_alvo} chamadas por alvo", ""]
     for p in planos:
@@ -121,6 +121,10 @@ def plano_texto(planos: list[PlanoAlvo], ataques: list[Ataque]) -> str:
         "",
         f"  total: {por_alvo * len(planos)} chamadas ({por_alvo} × {len(planos)} alvos)"
         + (f", {por_alvo * remotos} delas em alvo remoto" if remotos else ""),
+        *([
+            f"  juiz LLM ({juiz.nome}, {'REMOTO' if juiz.remoto else 'local'}): "
+            f"{len(ataques)} chamadas por alvo, {len(ataques) * len(planos)} no total",
+        ] if juiz is not None else []),
         "  retentativas por limite de taxa (429/5xx) podem somar chamadas a isso.",
         "",
     ]
@@ -139,8 +143,11 @@ def roda(
     paralelo: int = 4,
     permitir_remoto: bool = False,
     ao_terminar=None,
+    juiz=None,
 ) -> list[Execucao]:
     remotos = [p.nome for p in planos if p.remoto]
+    if juiz is not None and juiz.remoto:
+        remotos.append(f"juiz {juiz.nome}")
     if remotos and not permitir_remoto:
         raise PermissionError(
             f"alvos remotos na lista: {remotos}. Cada turno é uma chamada (veja --seco); "
@@ -154,7 +161,7 @@ def roda(
         # reconfere no objeto que vai rodar: o plano e a execução não podem divergir
         if _remoto(endereco_do_alvo(alvo)) and not permitir_remoto:
             raise PermissionError(f"alvo {p.nome!r} é remoto; use --permitir-remoto")
-        execucao = executa(ataques, alvo, paralelo, ao_terminar=ao_terminar)
+        execucao = executa(ataques, alvo, paralelo, ao_terminar=ao_terminar, juiz=juiz)
         execucoes.append(execucao)
         destino = saida / f"{_arquivo(p.nome)}.json"
         destino.write_text(report.para_json(execucao), encoding="utf-8")

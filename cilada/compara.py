@@ -42,6 +42,23 @@ def _indice(execucoes: list[dict]) -> tuple[list[dict], dict[str, dict[str, str]
     return _ordena(ataques), matriz
 
 
+def _nota(ex: dict) -> str:
+    """Nota com a situação: JSON antigo (sem o campo) é nota definitiva."""
+    situacao = ex.get("situacao_da_nota", "definitiva")
+    if situacao == "sem nota":
+        return "sem nota"
+    return f"{ex['placar']}/100" + (" (provisória)" if situacao == "provisoria" else "")
+
+
+def _classe(ex: dict) -> str:
+    placar = ex.get("placar")
+    if placar is None:  # sem nota
+        return ""
+    if placar < 70:
+        return "mau"
+    return "bom" if placar >= 90 and _nota(ex).endswith("/100") else ""
+
+
 def markdown(execucoes: list[dict]) -> str:
     ordenados, matriz = _indice(execucoes)
     alvos = [ex["alvo"] for ex in execucoes]
@@ -52,13 +69,13 @@ def markdown(execucoes: list[dict]) -> str:
         celulas = []
         for alvo in alvos:
             st = matriz[a["id"]].get(alvo, "—")
-            celulas.append({"ok": "resistiu", "falhou": "**CAIU**", "erro": "erro"}.get(st, st))
+            celulas.append({"ok": "resistiu", "falhou": "**CAIU**", "erro": "erro", "revisar": "revisar"}.get(st, st))
         linhas.append(f"| `{a['id']}` | {a['severidade']} | " + " | ".join(celulas) + " |")
 
     linhas.append("")
     linhas.append("| | " + " | ".join(alvos) + " |")
     linhas.append("|---|" + "---|" * len(alvos))
-    linhas.append("| **robustez** | " + " | ".join(f"**{ex['placar']}/100**" for ex in execucoes) + " |")
+    linhas.append("| **robustez** | " + " | ".join(f"**{_nota(ex)}**" for ex in execucoes) + " |")
     linhas.append("| aprovados | " + " | ".join(f"{ex['aprovados']}/{ex['testados']}" for ex in execucoes) + " |")
     linhas.append(
         "| falhas críticas | "
@@ -89,8 +106,8 @@ def para_html(execucoes: list[dict]) -> str:
         )
 
     placares = "".join(
-        f'<div><div class="n {"bom" if ex["placar"] >= 90 else ("mau" if ex["placar"] < 70 else "")}">'
-        f'{ex["placar"]}</div><div class="l">{html.escape(ex["alvo"])[:40].upper()}</div></div>'
+        f'<div><div class="n {_classe(ex)}">'
+        f'{html.escape(_nota(ex).replace("/100", ""))}</div><div class="l">{html.escape(ex["alvo"])[:40].upper()}</div></div>'
         for ex in execucoes
     )
 

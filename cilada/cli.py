@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from . import __version__, arena, report
+from . import __version__, arena, juiz as juiz_mod, report
 from .attacks import carregar
 from .runner import executa
 from .targets import AlvoHTTP, de_config
@@ -34,6 +34,25 @@ def _monta_alvo(args):
     raise SystemExit("informe --target URL ou --config arquivo.yaml")
 
 
+def _monta_juiz(args):
+    """Juiz LLM opcional. Devolve (juiz ou None, código de erro ou 0)."""
+    if not args.juiz:
+        return None, 0
+    try:
+        juiz = juiz_mod.carrega(Path(args.juiz))
+    except (ValueError, KeyError, FileNotFoundError) as erro:
+        print(f"  config do juiz inválida: {erro}", file=sys.stderr)
+        return None, 2
+    if juiz.remoto and not args.permitir_remoto and not args.seco:
+        print(
+            f"  o juiz {juiz.nome!r} é remoto: cada ataque é uma chamada a mais (veja --seco). "
+            "Para rodar mesmo assim, use --permitir-remoto.",
+            file=sys.stderr,
+        )
+        return None, 2
+    return juiz, 0
+
+
 def _arena(args, ataques, suites) -> int:
     if not args.lista:
         raise SystemExit("arena: informe --lista arquivo.yaml")
@@ -42,7 +61,10 @@ def _arena(args, ataques, suites) -> int:
     except (ValueError, KeyError) as erro:
         print(f"  lista da arena inválida: {erro}", file=sys.stderr)
         return 2
-    print(arena.plano_texto(planos, ataques))
+    juiz, codigo = _monta_juiz(args)
+    if codigo:
+        return codigo
+    print(arena.plano_texto(planos, ataques, juiz))
     if args.seco:
         print("  --seco: nada foi executado.\n")
         return 0
@@ -51,6 +73,7 @@ def _arena(args, ataques, suites) -> int:
             planos, ataques, suites, Path(args.saida), args.paralelo,
             permitir_remoto=args.permitir_remoto,
             ao_terminar=lambda r: print(report.linha_resultado(r)),
+            juiz=juiz,
         )
     except PermissionError as erro:
         print(f"  {erro}\n", file=sys.stderr)
@@ -67,6 +90,12 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(fluxo, "reconfigure"):
             fluxo.reconfigure(encoding="utf-8", errors="replace")
 
+    argumentos = sys.argv[1:] if argv is None else list(argv)
+    if argumentos[:1] == ["revisao"]:
+        from . import revisao
+
+        return revisao.main(argumentos[1:])
+
     p = argparse.ArgumentParser(
         prog="cilada",
         description="Suíte adversarial em português brasileiro para agentes de IA.",
@@ -74,7 +103,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "comando",
         choices=["run", "list", "arena"],
-        help="run: ataca um alvo. list: lista ataques. arena: vários alvos e o comparativo.",
+        help="run: ataca um alvo. list: lista ataques. arena: vários alvos e o comparativo. "
+             "(revisao exportar|medir: amostra para revisão humana — `cilada revisao -h`)",
     )
     p.add_argument("--target", help="URL do endpoint do agente (POST JSON)")
     p.add_argument("--config", help="arquivo de configuração com o bloco alvo:")
@@ -97,15 +127,17 @@ def main(argv: list[str] | None = None) -> int:
         help="quando sair com código 1 — use em CI (padrão: critica)",
     )
     p.add_argument("--lista", help="arena: arquivo com base: e alvos:")
-    p.add_argument("--seco", action="store_true", help="arena: mostra o plano e as chamadas, sem executar")
+    p.add_argument("--seco", action="store_true",
+                   help="mostra o plano e as chamadas (alvo e juiz), sem executar")
+    p.add_argument("--juiz", help="YAML com bloco juiz: — juiz LLM complementar ao regex")
     p.add_argument("--saida", default="arena", help="arena: pasta dos JSON e do comparativo (padrão: arena/)")
     p.add_argument(
         "--permitir-remoto",
         action="store_true",
-        help="arena: permite alvo fora de localhost (API paga custa por chamada)",
+        help="permite alvo ou juiz fora de localhost (API paga custa por chamada)",
     )
     p.add_argument("--version", action="version", version=f"cilada {__version__}")
-    args = p.parse_args(argv)
+    args = p.parse_args(argumentos)
 
     raiz = Path(args.attacks)
     suites = args.suite or [d.name for d in sorted(raiz.iterdir()) if d.is_dir()]
@@ -129,8 +161,20 @@ def main(argv: list[str] | None = None) -> int:
         # mensagem curta, sem traceback: as mensagens de config nunca trazem valores
         print(f"  config do alvo inválida: {erro}", file=sys.stderr)
         return 2
-    print(f"\n  cilada v{__version__} · {len(ataques)} ataques · pt-BR\n")
-    execucao = executa(ataques, alvo, args.paralelo, ao_terminar=lambda r: print(report.linha_resultado(r)))
+    juiz, codigo = _monta_juiz(args)
+    if codigo:
+        return codigo
+    if args.seco:
+        chamadas = arena.chamadas_por_alvo(ataques)
+        print(f"\n  plano: {len(ataques)} ataques · {chamadas} chamadas ao alvo"
+              + (f" · {len(ataques)} chamadas ao juiz {juiz.nome} "
+                 f"({'REMOTO' if juiz.remoto else 'local'})" if juiz else " · sem juiz LLM")
+              + "\n  --seco: nada foi executado.\n")
+        return 0
+    print(f"\n  cilada v{__version__} · {len(ataques)} ataques · pt-BR"
+          + (f" · juiz LLM: {juiz.nome}" if juiz else "") + "\n")
+    execucao = executa(ataques, alvo, args.paralelo,
+                       ao_terminar=lambda r: print(report.linha_resultado(r)), juiz=juiz)
     print(report.resumo(execucao, suites))
 
     if args.saida_json:
@@ -145,6 +189,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.falhar_em == "qualquer" and execucao.falhas:
         return 1
     if args.falhar_em == "critica" and execucao.criticas:
+        return 1
+    if args.falhar_em != "nunca" and execucao.juiz and execucao.situacao_da_nota == "sem nota":
+        # juiz fora do ar não pode virar CI verde: sem decisão não é aprovação
         return 1
     return 0
 

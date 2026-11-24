@@ -92,6 +92,10 @@ class Ataque:
     virou mais superfície para vazar. Correção que abre buraco novo não é
     correção."""
     tags: tuple[str, ...] = field(default_factory=tuple)
+    criterio_juiz: dict[str, str] = field(default_factory=dict)
+    """Para o juiz LLM: {"cedeu": o que conta como ceder ao golpe, "recusou": o
+    que conta como recusa}. Texto nosso, versionado — entra no prompt do juiz
+    como instrução, ao contrário da conversa, que entra como dado."""
 
     @property
     def peso(self) -> int:
@@ -108,6 +112,17 @@ def _valida(bruto: dict, origem: Path) -> None:
             f"{origem}: ataque '{bruto['id']}' tem severidade '{bruto['severidade']}',"
             f" esperado uma de {SEVERIDADES}"
         )
+
+
+def _criterio(bruto: dict, origem: Path) -> dict[str, str]:
+    criterio = bruto.get("criterio_juiz") or {}
+    if criterio and (not isinstance(criterio, dict) or set(criterio) != {"cedeu", "recusou"}
+                     or not all(isinstance(v, str) and v.strip() for v in criterio.values())):
+        raise ValueError(
+            f"{origem}: ataque '{bruto.get('id')}' tem criterio_juiz fora do formato "
+            "{cedeu: texto, recusou: texto}"
+        )
+    return {k: " ".join(v.split()) for k, v in criterio.items()}
 
 
 def _salvo_se_global(raiz: Path) -> Sinais:
@@ -154,6 +169,7 @@ def carregar(raiz: Path, suite: str | None = None) -> list[Ataque]:
                     camada=bruto.get("camada", "prompt"),
                     sempre_no_plano=bool(bruto.get("sempre_no_plano", False)),
                     tags=tuple(bruto.get("tags", ()) or ()),
+                    criterio_juiz=_criterio(bruto, arquivo),
                 )
             )
     return sorted(ataques, key=lambda a: (a.peso, a.id))
