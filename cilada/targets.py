@@ -6,9 +6,11 @@ import json
 import os
 import random
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
+from urllib.parse import urlparse
 
 import httpx
 
@@ -102,7 +104,7 @@ class AlvoOpenAI:
     modelo: str
     system: str
     base_url: str = "https://api.openai.com/v1"
-    api_key_env: str | None = "OPENAI_API_KEY"
+    api_key_env: str | None = field(default="OPENAI_API_KEY", repr=False)
     """Nome da variável de ambiente com a chave. None = o alvo não exige chave
     (Ollama local, servidor de teste). A chave em si nunca vem da config."""
     nome: str = ""
@@ -113,10 +115,13 @@ class AlvoOpenAI:
 
     def __post_init__(self) -> None:
         self.nome = self.nome or self.modelo
-        if self.api_key_env is not None and not _NOME_DE_VARIAVEL.fullmatch(self.api_key_env):
+        if self.api_key_env is not None and not nome_de_variavel_seguro(self.api_key_env):
+            # O valor NUNCA entra na mensagem: se for uma chave colada no lugar
+            # do nome, a mensagem iria para o terminal, o log e o laudo.
             raise ValueError(
-                "api_key_env precisa ser o NOME de uma variável de ambiente (ex.: "
-                "OPENAI_API_KEY), não a chave. Nunca escreva a chave no arquivo de config."
+                "api_key_env não parece nome de variável de ambiente (use MAIÚSCULAS e "
+                "_, ex.: OPENAI_API_KEY) ou parece uma chave. O valor não é exibido. "
+                "Nunca escreva a chave no arquivo de config."
             )
 
     def _cabecalhos(self) -> dict[str, str]:
@@ -125,8 +130,8 @@ class AlvoOpenAI:
         chave = os.environ.get(self.api_key_env, "")
         if not chave:
             raise RuntimeError(
-                f"variável de ambiente {self.api_key_env} não definida. Se o alvo não "
-                "exige chave (ex.: Ollama local), use `sem_chave: true` na config."
+                "a variável de ambiente indicada em api_key_env não está definida. Se o "
+                "alvo não exige chave (ex.: Ollama local), use `sem_chave: true` na config."
             )
         return {"Authorization": f"Bearer {chave}"}
 
@@ -153,27 +158,77 @@ class AlvoOpenAI:
         return respostas
 
 
-_NOME_DE_VARIAVEL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# Nome de variável de ambiente: convenção MAIÚSCULAS_COM_UNDERLINE. Chaves de
+# API costumam ter minúscula (gsk_…, AIza…, hf_…) — a convenção já as barra.
+_NOME_DE_VARIAVEL = re.compile(r"[A-Z_][A-Z0-9_]*")
+# Chaves com prefixo minúsculo (sk-, gsk_, hf_, AIza…, xai-) já caem na regra
+# de MAIÚSCULAS. Aqui ficam as que existem em maiúsculas (AWS), com caixa —
+# sem caixa, HF_TOKEN, um nome legítimo, seria barrado por parecer hf_….
+_PREFIXOS_DE_CHAVE = ("AKIA", "ASIA")
 
-# Campos que só existiriam para carregar uma chave literal no YAML. Config vai
-# para repositório, para print de tela e para issue — chave nela é chave vazada.
-_CHAVE_LITERAL = ("api_key", "chave", "token", "key", "authorization", "senha")
+
+def nome_de_variavel_seguro(nome: str) -> bool:
+    """O texto parece nome de variável, e não uma chave colada no lugar?"""
+    if not isinstance(nome, str) or not _NOME_DE_VARIAVEL.fullmatch(nome):
+        return False
+    if nome.startswith(_PREFIXOS_DE_CHAVE):
+        return False
+    # nome de variável é curto e quase sem dígito; segredo é longo ou numérico
+    return len(nome) <= 40 and sum(c.isdigit() for c in nome) < 6
+
+
+# Campos aceitos no bloco `alvo:`, por tipo. Qualquer outro é recusado: é o que
+# impede `apikey:`, `secret:`, `bearer:` e o próximo nome criativo de levar
+# chave para o YAML — config vai para repositório, print e issue.
+CAMPOS_HTTP = frozenset({"tipo", "nome", "url", "corpo", "campo_resposta", "headers"})
+CAMPOS_OPENAI = frozenset({"tipo", "nome", "modelo", "system", "base_url", "api_key_env", "sem_chave"})
+
+# Header que carrega credencial precisa vir de variável: `${VAR}`, com prefixo
+# de esquema opcional (`Bearer ${VAR}`). Valor literal é recusado.
+_HEADER_SENSIVEL = re.compile(r"auth|key|token|secret|segredo|senha|cookie|bearer", re.IGNORECASE)
+_HEADER_DE_VARIAVEL = re.compile(r"(?:(?:Bearer|Basic|Token)\s+)?\$\{[A-Z_][A-Z0-9_]*\}")
+
+_LOCAIS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _confere_campos(cfg: dict, aceitos: frozenset[str], tipo: str) -> None:
+    desconhecidos = sorted(str(c) for c in cfg if c not in aceitos)
+    if desconhecidos:
+        # só os NOMES dos campos, nunca os valores
+        raise ValueError(
+            f"o alvo {tipo} não aceita {desconhecidos}. Campos válidos: {sorted(aceitos)}. "
+            "Chave nunca vai no YAML: use `api_key_env: NOME_DA_VARIAVEL`."
+        )
+
+
+def _confere_headers(headers: object) -> None:
+    if headers is None:
+        return
+    if not isinstance(headers, dict):
+        raise ValueError("headers precisa ser um bloco nome: valor")
+    for nome, valor in headers.items():
+        if _HEADER_SENSIVEL.search(str(nome)) and not _HEADER_DE_VARIAVEL.fullmatch(str(valor)):
+            raise ValueError(
+                f"o header {nome!r} carrega credencial e precisa vir de variável de "
+                "ambiente, ex.: `Bearer ${MINHA_CHAVE}`. O valor não é exibido."
+            )
 
 
 def _chave_do_alvo(cfg: dict) -> str | None:
-    """Decide de onde vem a chave do alvo openai, recusando chave literal."""
-    literais = sorted(c for c in cfg if c.lower() in _CHAVE_LITERAL)
-    if literais:
-        raise ValueError(
-            f"a config do alvo tem {literais}: a chave nunca vai no YAML. Use "
-            "`api_key_env: NOME_DA_VARIAVEL` e defina a variável no ambiente."
-        )
+    """Decide de onde vem a chave do alvo openai."""
     sem_chave = cfg.get("sem_chave", False)
     if not isinstance(sem_chave, bool):
         raise ValueError("sem_chave precisa ser true ou false")
     if sem_chave:
         if "api_key_env" in cfg:
             raise ValueError("use `sem_chave: true` ou `api_key_env`, não os dois")
+        host = (urlparse(cfg.get("base_url", "https://api.openai.com/v1")).hostname or "").lower()
+        if host not in _LOCAIS:
+            print(
+                "  aviso: `sem_chave: true` com alvo fora de localhost — os pedidos vão sem "
+                "autenticação e o servidor deve responder 401.",
+                file=sys.stderr,
+            )
         return None
     return cfg.get("api_key_env", "OPENAI_API_KEY")
 
@@ -182,6 +237,8 @@ def de_config(cfg: dict) -> Alvo:
     """Constrói o alvo a partir do bloco `alvo:` do cilada.yaml."""
     tipo = cfg.get("tipo", "http")
     if tipo == "http":
+        _confere_campos(cfg, CAMPOS_HTTP, tipo)
+        _confere_headers(cfg.get("headers"))
         return AlvoHTTP(
             url=cfg["url"],
             nome=cfg.get("nome", "http"),
@@ -190,6 +247,7 @@ def de_config(cfg: dict) -> Alvo:
             headers=cfg.get("headers"),
         )
     if tipo == "openai":
+        _confere_campos(cfg, CAMPOS_OPENAI, tipo)
         return AlvoOpenAI(
             modelo=cfg["modelo"],
             system=cfg.get("system", ""),

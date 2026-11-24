@@ -91,8 +91,9 @@ def test_chave_literal_na_config_e_recusada(campo):
 
 def test_chave_colada_em_api_key_env_e_recusada():
     """Erro comum: colar a chave no lugar do nome da variável."""
-    with pytest.raises(ValueError, match="NOME de uma variável"):
+    with pytest.raises(ValueError, match="não parece nome de variável") as erro:
         de_config({"tipo": "openai", "modelo": "m", "api_key_env": "sk-proj-abc123-xyz"})
+    assert "sk-proj" not in str(erro.value)
 
 
 def test_sem_chave_e_api_key_env_juntos_e_recusado():
@@ -114,3 +115,103 @@ def test_exemplos_de_config_carregam_sem_chave_literal(arquivo, sem_chave):
     alvo = de_config(yaml.safe_load(texto)["alvo"])
     assert (alvo.api_key_env is None) is sem_chave
     assert "sk-" not in texto and "Bearer" not in texto
+
+
+# ---- vazamento de chave (revisão do PR #1) ---------------------------------
+#
+# Chave com cara de identificador (gsk_…, AIza…, hf_…, AKIA…) passava como
+# "nome de variável" e era ecoada no erro, que ia para o terminal e o laudo.
+
+CHAVES_FALSAS = [
+    "gsk_FAKEFAKEfake1234567890abcdefXYZ",
+    "AIzaSyFAKEFAKE_fake-1234567890abc",
+    "hf_FAKEfakeFAKEfake123456",
+    "xai_FAKEfake123456789",
+    "AKIAFAKEFAKE12345678",
+    "ABCDEF0123456789ABCDEF0123456789",
+]
+
+
+@pytest.mark.parametrize("chave", CHAVES_FALSAS)
+def test_chave_com_cara_de_nome_e_recusada_sem_eco(chave):
+    with pytest.raises(ValueError) as erro:
+        de_config({"tipo": "openai", "modelo": "m", "api_key_env": chave})
+    assert chave not in str(erro.value)
+
+
+@pytest.mark.parametrize("nome", ["OPENAI_API_KEY", "GROQ_API_KEY", "HF_TOKEN", "MINHA_CHAVE_2"])
+def test_nomes_legitimos_continuam_aceitos(nome):
+    assert de_config({"tipo": "openai", "modelo": "m", "api_key_env": nome}).api_key_env == nome
+
+
+def test_repr_do_alvo_nao_mostra_api_key_env():
+    alvo = de_config({"tipo": "openai", "modelo": "m", "api_key_env": "MINHA_CHAVE_SECRETA"})
+    assert "MINHA_CHAVE_SECRETA" not in repr(alvo)
+
+
+def test_variavel_ausente_nao_e_ecoada_no_erro(monkeypatch):
+    monkeypatch.delenv("NOME_QUE_NAO_DEVE_APARECER", raising=False)
+    alvo = de_config({"tipo": "openai", "modelo": "m", "api_key_env": "NOME_QUE_NAO_DEVE_APARECER"})
+    with pytest.raises(RuntimeError) as erro:
+        alvo.conversa(["oi"])
+    assert "NOME_QUE_NAO_DEVE_APARECER" not in str(erro.value)
+
+
+@pytest.mark.parametrize("campo", ["apikey", "api-key", "openai_api_key", "secret", "bearer",
+                                   "segredo", "temperatura_secreta", "url"])
+def test_campo_desconhecido_no_alvo_openai_e_recusado(campo):
+    with pytest.raises(ValueError, match="não aceita") as erro:
+        de_config({"tipo": "openai", "modelo": "m", "sem_chave": True, campo: "VALOR-SECRETO-123"})
+    assert "VALOR-SECRETO-123" not in str(erro.value)
+
+
+def test_campo_desconhecido_no_alvo_http_e_recusado():
+    with pytest.raises(ValueError, match="não aceita"):
+        de_config({"tipo": "http", "url": "http://127.0.0.1/c", "api_key": "VALOR-SECRETO-123"})
+
+
+@pytest.mark.parametrize("headers,aceito", [
+    ({"Authorization": "Bearer ${MINHA_CHAVE}"}, True),
+    ({"X-Api-Key": "${MINHA_CHAVE}"}, True),
+    ({"Content-Type": "application/json"}, True),
+    ({"Authorization": "Bearer sk-literal-123"}, False),
+    ({"X-Api-Key": "literal123"}, False),
+    ({"Cookie": "sessao=abc"}, False),
+])
+def test_header_com_credencial_precisa_vir_de_variavel(headers, aceito):
+    cfg = {"tipo": "http", "url": "http://127.0.0.1/c", "headers": headers}
+    if aceito:
+        de_config(cfg)
+    else:
+        with pytest.raises(ValueError) as erro:
+            de_config(cfg)
+        assert not any(v in str(erro.value) for v in headers.values())
+
+
+def test_sem_chave_remoto_so_avisa(capsys):
+    alvo = de_config({"tipo": "openai", "modelo": "m", "sem_chave": True,
+                      "base_url": "https://api.exemplo.invalid/v1"})
+    assert alvo.api_key_env is None
+    assert "aviso" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("chave", CHAVES_FALSAS)
+def test_chave_falsa_nao_aparece_em_saida_nenhuma(tmp_path, capsys, chave):
+    """Ponta a ponta: config com a chave no lugar do nome, pela CLI.
+
+    Procura a chave no stdout, no stderr, no JSON e no HTML: zero ocorrências.
+    Nada chega a conectar — a config é recusada antes.
+    """
+    from cilada import cli
+
+    cfg = tmp_path / "alvo.yaml"
+    cfg.write_text(yaml.safe_dump({"alvo": {"tipo": "openai", "modelo": "m",
+                                            "base_url": "http://127.0.0.1:9/v1",
+                                            "api_key_env": chave}}), encoding="utf-8")
+    js, ht = tmp_path / "r.json", tmp_path / "r.html"
+    codigo = cli.main(["run", "--config", str(cfg), "--json", str(js), "--html", str(ht),
+                       "--suite", "ecommerce"])
+    saida = capsys.readouterr()
+    assert codigo == 2
+    textos = [saida.out, saida.err] + [p.read_text(encoding="utf-8") for p in (js, ht) if p.exists()]
+    assert sum(t.count(chave) for t in textos) == 0

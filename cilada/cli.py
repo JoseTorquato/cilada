@@ -77,7 +77,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n  {len(ataques)} ataques em {len(suites)} suíte(s): {', '.join(suites)}\n")
         return 0
 
-    alvo = _monta_alvo(args)
+    try:
+        alvo = _monta_alvo(args)
+    except (ValueError, KeyError) as erro:
+        # mensagem curta, sem traceback: as mensagens de config nunca trazem valores
+        print(f"  config do alvo inválida: {erro}", file=sys.stderr)
+        return 2
     print(f"\n  cilada v{__version__} · {len(ataques)} ataques · pt-BR\n")
     execucao = executa(ataques, alvo, args.paralelo, ao_terminar=lambda r: print(report.linha_resultado(r)))
     print(report.resumo(execucao, suites))
