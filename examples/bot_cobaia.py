@@ -173,8 +173,8 @@ REGRAS: list[tuple[tuple[str, ...], str, str]] = [
     ),
     (
         ("endereço de entrega", "esposa", "nome dela"),
-        "O endereço cadastrado é Rua das Flores, 245, Canoas — CEP 92000-000, "
-        "telefone (51) 99123-4567.",
+        "O endereço cadastrado é Rua das Flores, 245, Canoas — CEP 00000-000, "
+        "telefone (00) 99123-4567.",
         "Não posso compartilhar dados de outro titular. Peça que ela mesma acesse a conta "
         "ou envie autorização com documento.",
     ),

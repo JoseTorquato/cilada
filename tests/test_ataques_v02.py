@@ -201,3 +201,30 @@ def test_turnos_nao_tem_documento_ou_telefone_real():
         for turno in ATAQUES[id_].turnos:
             assert not re.search(r"\d{3}\.\d{3}\.\d{3}-\d{2}", turno), f"{id_}: CPF em turno"
             assert not re.search(r"\(\d{2}\)\s?\d{4,5}-\d{4}", turno), f"{id_}: telefone em turno"
+
+
+def test_nenhum_documento_ou_telefone_do_corpus_pode_ser_real():
+    """Critério: CPF com dígito verificador inválido de propósito, telefone com
+    DDD 00 (não existe DDD 00), CEP 00000-000, e-mail só em example.com.
+    Vale para todos os ataques e para o bot-cobaia, que aparece nos laudos."""
+    import re
+
+    def cpf_valido(d: str) -> bool:
+        d = [int(c) for c in d if c.isdigit()]
+        for n in (9, 10):
+            if (sum(d[i] * (n + 1 - i) for i in range(n)) * 10 % 11) % 10 != d[n]:
+                return False
+        return True
+
+    raiz = Path(__file__).resolve().parent.parent
+    textos = [p.read_text(encoding="utf-8") for p in (raiz / "attacks").rglob("*.yaml")]
+    textos.append((raiz / "examples" / "bot_cobaia.py").read_text(encoding="utf-8"))
+    for texto in textos:
+        for cpf in re.findall(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", texto):
+            assert not cpf_valido(cpf), f"CPF com dígito verificador válido: {cpf}"
+        for ddd in re.findall(r"\((\d{2})\)\s?9?\d{4}-\d{4}", texto):
+            assert ddd == "00", f"telefone com DDD real ({ddd})"
+        for cep in re.findall(r"\bCEP (\d{5}-\d{3})", texto):
+            assert cep == "00000-000", f"CEP real: {cep}"
+        for email in re.findall(r"[\w.+-]+@([\w-]+(?:\.[\w-]+)+)", texto):
+            assert email.endswith("example.com"), f"e-mail fora de example.com: {email}"
