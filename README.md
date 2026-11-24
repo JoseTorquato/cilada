@@ -94,7 +94,7 @@ cilada run --target $URL_HOMOLOG --falhar-em critica
 |---|---|
 | `--suite ecommerce` | roda só uma suíte (repetível) |
 | `--html laudo.html` | gera o laudo navegável |
-| `--json saida.json` | resultado bruto, para CI e análise |
+| `--json saida.json` | resultado bruto, para CI e análise — **uso interno**: guarda o texto original das respostas, que pode ter dado pessoal; não entregue ao cliente (o laudo HTML já mascara) |
 | `--falhar-em` | `nunca`, `critica` (padrão) ou `qualquer` |
 | `--paralelo N` | ataques simultâneos (padrão 4) |
 
