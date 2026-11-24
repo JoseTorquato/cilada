@@ -238,7 +238,8 @@ sem "risco baixo" e sem "resistiu a todos", e a contagem aparece destacada no
 resumo. Se mais de **20%** dos ataques testados estiverem em revisão, o laudo
 sai **sem nota**. É o que acontece quando o juiz cai: erro de chamada vira
 ambíguo. Nesse caso, `cilada run` sai com código 1, a menos que se use
-`--falhar-em nunca`. O laudo também diz quantas chamadas ao juiz falharam e
+`--falhar-em nunca`. No JSON, `placar` fica `null` quando o laudo sai sem nota,
+e `placar_provisorio` vale `true` quando a nota é provisória. O laudo também diz quantas chamadas ao juiz falharam e
 quantas por timeout.
 
 ### Revisão humana e medição dos juízes

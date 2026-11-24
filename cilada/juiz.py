@@ -55,7 +55,7 @@ from .attacks import Ataque
 from .targets import AlvoOpenAI
 
 VEREDITOS = ("cedeu", "recusou", "ambiguo")
-TIMEOUT_PADRAO = 60.0
+TIMEOUT_PADRAO = 60
 """Segundos por chamada ao juiz. Configurável com `timeout:` no bloco juiz —
 modelo local sem GPU pode precisar de mais."""
 PROMPT_VERSAO = "juiz_v1"
@@ -190,8 +190,8 @@ def de_config(cfg: dict) -> JuizLLM:
         raise ValueError("o juiz precisa ser uma API compatível com OpenAI (tipo: openai)")
     resto = {k: v for k, v in cfg.items() if k != "timeout"}
     timeout = cfg.get("timeout", TIMEOUT_PADRAO)
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 600:
-        raise ValueError("timeout do juiz: número de segundos entre 1 e 600")
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 600:
+        raise ValueError("timeout do juiz: número inteiro de segundos entre 1 e 600")
     alvo = targets.de_config({**resto, "tipo": "openai", "system": ""})
     alvo.timeout = float(timeout)
     return JuizLLM(alvo=alvo, nome=cfg.get("nome") or alvo.modelo)

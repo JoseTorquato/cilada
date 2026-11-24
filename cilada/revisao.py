@@ -268,16 +268,33 @@ def _linhas_do_jsonl(caminho: Path, juiz=None, raiz: Path | None = None) -> tupl
     return linhas, invalidas
 
 
-def _texto(resultado: dict, descartadas: int) -> str:
+def _linha(nome, d) -> str:
+    if d is None:
+        return f"  {nome:<11} (não rodou)"
+    pct = 100 * d["acertos"] / d["n"] if d["n"] else 0
+    return (f"  {nome:<11} concordância {d['acertos']}/{d['n']} ({pct:.0f}%)"
+            f" · FN {d['falsos_negativos']} · FP {d['falsos_positivos']} · ambíguos {d['ambiguos']}")
+
+
+def _blocos(m: dict) -> list[str]:
+    out = [_linha(j, m["total"][j]) for j in JUIZES]
+    for titulo, grupo in (("por severidade", m["por_severidade"]), ("por ataque", m["por_ataque"])):
+        out.append(f"\n  {titulo}")
+        for chave, d in grupo.items():
+            out.append(f"   {chave}")
+            out += ["  " + _linha(j, d[j]) for j in JUIZES]
+    return out
+
+
+def _texto(resultado: dict, descartadas: int, frases: bool = False) -> str:
     m = resultado["medida"]
     n_motivo = resultado["linhas_por_motivo"]
-
-    def linha(nome, d):
-        if d is None:
-            return f"  {nome:<11} (não rodou)"
-        pct = 100 * d["acertos"] / d["n"] if d["n"] else 0
-        return (f"  {nome:<11} concordância {d['acertos']}/{d['n']} ({pct:.0f}%)"
-                f" · FN {d['falsos_negativos']} · FP {d['falsos_positivos']} · ambíguos {d['ambiguos']}")
+    if frases:
+        # JSONL rotulado: não há sorteio nem estratos — todas as frases são a medida
+        out = [f"\n  {n_motivo['amostra']} frases rotuladas ({descartadas} inválidas, ignoradas)",
+               f"\n  MEDIDA (todas as frases: {m['cedeu_humano']} cessões e {m['recusou_humano']} recusas"
+               " segundo o rótulo)"]
+        return "\n".join(out + _blocos(m)) + "\n"
 
     out = [f"\n  {n_motivo['amostra']} rotuladas na amostra sorteada · {n_motivo['divergencia']}"
            f" divergências · {n_motivo['ambiguo']} ambíguos ({descartadas} sem rótulo, ignoradas)"]
@@ -286,19 +303,14 @@ def _texto(resultado: dict, descartadas: int) -> str:
     else:
         out.append(f"\n  MEDIDA (só a amostra sorteada: {m['cedeu_humano']} cessões e"
                    f" {m['recusou_humano']} recusas segundo o humano)")
-        out += [linha(j, m["total"][j]) for j in JUIZES]
-        for titulo, grupo in (("por severidade", m["por_severidade"]), ("por ataque", m["por_ataque"])):
-            out.append(f"\n  {titulo}")
-            for chave, d in grupo.items():
-                out.append(f"   {chave}")
-                out += ["  " + linha(j, d[j]) for j in JUIZES]
+        out += _blocos(m)
     for motivo, titulo in (("divergencia", "divergências regex × LLM"), ("ambiguo", "ambíguos")):
         if not n_motivo[motivo]:
             continue
         d = resultado["a_parte"][motivo]
         out.append(f"\n  À PARTE — {titulo} ({n_motivo[motivo]}; escolhidas por serem difíceis,"
                    " não entram na medida)")
-        out += [linha(j, d["total"][j]) for j in JUIZES]
+        out += [_linha(j, d["total"][j]) for j in JUIZES]
     return "\n".join(out) + "\n"
 
 
@@ -342,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
         gabarito = Path(args.gabarito) if args.gabarito else arquivo.with_name(arquivo.stem + ".gabarito.json")
         linhas, descartadas = _linhas_do_csv(arquivo, gabarito)
     resultado = medir(linhas)
-    print(_texto(resultado, descartadas))
+    print(_texto(resultado, descartadas, frases=arquivo.suffix == ".jsonl"))
     if args.saida_json:
         Path(args.saida_json).write_text(json.dumps(resultado, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0

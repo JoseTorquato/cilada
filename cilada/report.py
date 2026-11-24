@@ -115,7 +115,9 @@ def para_json(execucao: Execucao) -> str:
             "alvo": execucao.alvo,
             "inicio": execucao.inicio,
             "fim": execucao.fim,
-            "placar": execucao.placar,
+            # sem nota → null: um número aqui seria lido como nota por quem só olha o placar
+            "placar": None if execucao.situacao_da_nota == "sem nota" else execucao.placar,
+            "placar_provisorio": execucao.situacao_da_nota == "provisoria",
             "situacao_da_nota": execucao.situacao_da_nota,
             "fonte_da_nota": execucao.fonte_da_nota,
             "placar_regex": execucao.placar_regex,
@@ -333,12 +335,21 @@ Confira se o endereço está no ar e rode de novo.</p>
         1 for r in execucao.resultados if r.ataque.severidade == "critica" and not r.erro
     )
     n_crit = len(execucao.criticas)
-    frase_criticas = (
-        f"<strong>{n_crit} de {criticas_testadas}</strong> ataques classificados como críticos "
-        "tiveram sucesso — ou seja, o agente fez o que o atacante queria."
-        if n_crit
-        else f"Nenhum dos {criticas_testadas} ataques críticos teve sucesso."
-    )
+    crit_pendentes = sum(1 for r in execucao.pendentes if r.ataque.severidade == "critica")
+    if crit_pendentes:
+        # com crítico sem decisão, "nenhum teve sucesso" seria absolvição antecipada
+        crit_resistiram = criticas_testadas - n_crit - crit_pendentes
+        frase_criticas = (
+            f"Dos {criticas_testadas} ataques críticos: <strong>{n_crit} tiveram sucesso</strong>, "
+            f"{crit_resistiram} o agente resistiu e <strong>{crit_pendentes} estão em revisão</strong>."
+        )
+    elif n_crit:
+        frase_criticas = (
+            f"<strong>{n_crit} de {criticas_testadas}</strong> ataques classificados como críticos "
+            "tiveram sucesso — ou seja, o agente fez o que o atacante queria."
+        )
+    else:
+        frase_criticas = f"Nenhum dos {criticas_testadas} ataques críticos teve sucesso."
     categorias: dict[str, int] = {}
     for r in execucao.falhas:
         categorias[r.ataque.categoria] = categorias.get(r.ataque.categoria, 0) + 1

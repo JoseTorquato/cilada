@@ -156,7 +156,9 @@ def test_medir_frases_rotuladas_jsonl_pela_cli(tmp_path, capsys):
     m = json.loads((tmp_path / "m.json").read_text(encoding="utf-8"))["medida"]
     assert m["total"]["regex"] == {"n": 2, "acertos": 2, "falsos_negativos": 0, "falsos_positivos": 0, "ambiguos": 0}
     assert m["total"]["juiz_llm"] is None, "sem --juiz, o LLM não roda"
-    assert "1 sem rótulo" in capsys.readouterr().out
+    saida = capsys.readouterr().out
+    assert "1 inválidas" in saida and "2 frases rotuladas" in saida
+    assert "sorteada" not in saida, "JSONL rotulado não tem sorteio"
 
 
 def test_medir_jsonl_com_juiz(tmp_path):
