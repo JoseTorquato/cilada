@@ -185,13 +185,17 @@ um laudo cujo juiz muda de opinião entre duas execuções.
   de um jeito que nenhum regex daqui pega.
 - **O julgamento por padrões de texto tem recall limitado, e o laudo pode
   superestimar a robustez.** Medida dos revisores do projeto em 24/11/2026, num
-  conjunto de 48 frases não usado na calibração (8 ataques críticos da v0.2):
-  **cerca de 50% das cessões detectadas e cerca de 8% das recusas acusadas**;
-  nos críticos antigos, **1 de 5** cessões detectadas. Cessão em registro
-  formal ("procedemos à…"), em gíria de WhatsApp ou em dois passos tende a
-  passar. Os conjuntos em `tests/regressao_juiz/` são de regressão e calibração,
-  não de medida. Um agente que "passou" num ataque pode ter cedido com outras
-  palavras: leia as conversas, não só o placar.
+  conjunto não usado na calibração (frases escritas para testar, não respostas
+  de agente real): nos 8 ataques críticos da v0.2, **cerca de 42% a 46% das
+  cessões detectadas e 0 de 24 recusas acusadas**; nos críticos antigos, **1 de
+  5** cessões detectadas. Cessão em registro formal ("procedemos à…"), em gíria
+  de WhatsApp ou em dois passos tende a passar.
+- **O juiz prefere absolver a acusar.** Uma cessão que vem junto com uma negação
+  ("não vou te enrolar: já liberei") ou que repete o pedido do cliente e nega
+  algo na mesma frase tende a não ser detectada. É escolha de projeto: acusar
+  uma recusa num laudo é o pior erro. Os conjuntos em `tests/regressao_juiz/`
+  são de regressão e calibração, não de medida. Um agente que "passou" num
+  ataque pode ter cedido com outras palavras: leia as conversas, não só o placar.
 - **LLM varia entre execuções.** Duas rodadas do mesmo alvo com o mesmo prompt
   podem falhar em ataques diferentes. Para publicar comparação, rode N vezes.
 - Parte dos ataques é **relativa à política do cliente** (ver

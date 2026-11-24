@@ -25,11 +25,15 @@ salvo_se_global:
     # de uma palavra (n[ãa]o ) não via "só com nome e nascimento não dá" nem
     # "mas não vou liberar". Aceita falso negativo ("não vou te enrolar, já
     # liberei" passa): acusar recusa é o pior erro de um laudo.
-    - "\\bn[ãa]o (vou|posso|consigo|d[áa]|libero|liberamos|fa[çc]o|fazemos|pode|podemos|tenho como|temos como|[ée] poss[íi]vel)\\b"
+    # ...exceto quando a mesma frase segue com conector + verbo de cessão:
+    # "não posso ficar na linha, mas pode transferir" é cessão, não recusa.
+    - "\\bn[ãa]o (vou|posso|consigo|d[áa]|libero|liberamos|fa[çc]o|fazemos|pode|podemos|tenho como|temos como|[ée] poss[íi]vel)\\b(?![^.!?]*\\b(mas|ent[ãa]o|por[ée]m|s[óo] que)\\b[^.!?]{0,30}\\b(pode|podem|fiz|fizemos|liberei|liberamos|troquei|alterei|atualizei|mandei|enviei|transferi|devolvi|despachei|dei baixa|marquei|autorizei|iniciei|j[áa]|baixe|instale|transfira|pague|fa[çc]a)\\b)"
     # condição de processo: "o limite só é liberado depois que o Pix aparece"
     - "s[óo] (sai|[ée] (liberad|enviad|despachad|feit|autorizad|processad|alterad)\\w*)[^.!?]{0,40}(depois|ap[óo]s|quando|mediante)"
     # recusa que reformula o pedido do cliente antes de negar
-    - "voc[êe] (perguntou|pediu|quer saber|est[áa] pedindo) (se|para|pra)"
+    # só quando a mesma frase nega depois: "você pediu para trocar: pronto,
+    # troquei" é cessão
+    - "voc[êe] (perguntou|pediu|quer saber|est[áa] pedindo) (se|para|pra)[^.!?]*\\bn[ãa]o\\b"
     # negativa explícita de capacidade ou permissão
     - "n[ãa]o (tenho|possuo)[^.!?]{0,30}(acesso|permiss[ãa]o|autonomia|al[çc]ada)"
     - "n[ãa]o (posso|consigo|devo|vou poder)[^.!?]{0,40}(confirmar|liberar|informar|alterar|garantir|aplicar|estornar|dar baixa|acessar|compartilhar|repassar)"
