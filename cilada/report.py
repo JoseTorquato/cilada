@@ -37,9 +37,14 @@ def linha_resultado(r: Resultado) -> str:
     if r.erro:
         rotulo = _c("[erro]   ", AMAR)
         detalhe = _c(r.erro[:70], CINZA)
-    elif r.vulneravel:
+    elif r.falhou:
         rotulo = _c("[FALHOU] ", VERM)
-        detalhe = _c(r.evidencia[:70].replace("\n", " "), CINZA)
+        texto = r.evidencia or (r.juiz or {}).get("trecho", "")
+        origem = f"[{r.origem}] " if r.juiz is not None else ""
+        detalhe = _c((origem + texto)[:70].replace("\n", " "), CINZA)
+    elif r.status == "revisar":
+        rotulo = _c("[revisar]", AMAR)
+        detalhe = _c(((r.juiz or {}).get("justificativa", ""))[:70], CINZA)
     else:
         rotulo = _c("[ok]     ", CIANO)
         detalhe = ""
@@ -57,6 +62,10 @@ def resumo(execucao: Execucao, suites: list[str]) -> str:
     )
     if execucao.erros:
         linhas.append(_c(f"  {len(execucao.erros)} ataques não puderam ser executados", AMAR))
+    if execucao.juiz:
+        linhas.append(_c(
+            f"  nota: {execucao.fonte_da_nota} · só regex: {execucao.placar_regex}/100"
+            f" · {len(execucao.para_revisao)} para revisão humana", AMAR if execucao.para_revisao else CINZA))
     linhas.append(_c(f"  alvo: {execucao.alvo}   suítes: {', '.join(suites)}", CINZA))
     linhas.append("")
     return "\n".join(linhas)
@@ -69,6 +78,9 @@ def para_json(execucao: Execucao) -> str:
             "inicio": execucao.inicio,
             "fim": execucao.fim,
             "placar": execucao.placar,
+            "fonte_da_nota": execucao.fonte_da_nota,
+            "placar_regex": execucao.placar_regex,
+            "juiz": execucao.juiz,
             "aprovados": execucao.aprovados,
             "testados": execucao.testados,
             "resultados": [
@@ -80,6 +92,11 @@ def para_json(execucao: Execucao) -> str:
                     "suite": r.ataque.suite,
                     "referencia": r.ataque.referencia,
                     "status": r.status,
+                    "regex": "erro" if r.erro else ("cedeu" if r.vulneravel else "passou"),
+                    "juiz_llm": r.juiz,
+                    "origem": r.origem,
+                    "divergente": r.divergente,
+                    "para_revisao": r.para_revisao,
                     "padrao": r.padrao,
                     "trecho": r.trecho,
                     "evidencia": r.evidencia,
@@ -301,6 +318,7 @@ Confira se o endereço está no ar e rode de novo.</p>
     return f"""<div class="resumo">
 <h2>Resumo para quem decide</h2>
 <p>Nota de robustez: <strong>{execucao.placar}/100</strong> — <span class="risco {classe}">{rotulo}</span></p>
+{_fonte_da_nota(execucao)}
 <p>Foram feitos {execucao.testados} ataques, como um cliente mal-intencionado faria.
 O agente resistiu a {execucao.aprovados} e falhou em {len(execucao.falhas)}. {frase_criticas}</p>
 {significado}
@@ -311,11 +329,49 @@ revisão humana dos trechos antes de usar este laudo como prova.</p>
 </div>"""
 
 
+def _fonte_da_nota(execucao: Execucao) -> str:
+    if not execucao.juiz:
+        return '<p class="nota">Nota calculada só pelo juiz por regex.</p>'
+    so_llm = sum(1 for r in execucao.falhas if r.origem == "juiz LLM")
+    return (
+        f'<p class="nota">Nota combinada: juiz por regex + juiz LLM '
+        f'({html.escape(execucao.juiz)}). Só com regex, a nota seria '
+        f'{execucao.placar_regex}/100. {so_llm} achado(s) vieram só do juiz LLM; '
+        f'{len(execucao.para_revisao)} caso(s) foram para revisão humana e não contam '
+        "como falha na nota.</p>"
+    )
+
+
+def _decisao(r: Resultado) -> str:
+    if r.juiz is None:
+        return ""
+    texto = {
+        "regex": "detectado pelo regex",
+        "juiz LLM": "detectado pelo juiz LLM",
+        "regex e juiz LLM": "detectado pelo regex e pelo juiz LLM",
+    }.get(r.origem, "")
+    aviso = (
+        ' · <strong>regex e juiz LLM discordam — revisar</strong>' if r.divergente
+        else (' · juiz LLM ambíguo — revisar' if r.veredito_llm == "ambiguo" else "")
+    )
+    just = (r.juiz or {}).get("justificativa", "")
+    return (
+        f'<p class="nota">{html.escape(texto)}{aviso}'
+        + (f'<br>juiz LLM: {html.escape(mascara(just))}' if just else "")
+        + "</p>"
+    )
+
+
 def _achado(r: Resultado) -> str:
     """Uma falha em três perguntas: o que disse, por que é problema, como corrigir."""
     a = r.ataque
-    dito = html.escape(mascara(r.evidencia or (r.respostas[-1] if r.respostas else "")))
-    trecho = html.escape(mascara(r.trecho))
+    trecho_llm = (r.juiz or {}).get("trecho", "") if not r.vulneravel else ""
+    base_dito = r.evidencia or next(
+        (resp for resp in r.respostas if trecho_llm and trecho_llm.lower() in resp.lower()),
+        r.respostas[-1] if r.respostas else "",
+    )
+    dito = html.escape(mascara(base_dito))
+    trecho = html.escape(mascara(r.trecho or trecho_llm))
     if trecho:
         idx = dito.lower().find(trecho.lower())
         if idx >= 0:
@@ -344,6 +400,7 @@ def _achado(r: Resultado) -> str:
     return f"""<div class="achado">
 <h3>{html.escape(a.titulo)}<span class="sev {a.severidade}">{a.severidade}</span></h3>
 <div class="id">{html.escape(a.id)} · {html.escape(a.categoria)} · suíte {html.escape(a.suite)}</div>
+{_decisao(r)}
 <div class="bloco"><span class="bloco-tag">o que o agente disse</span>
 <div class="citacao">{dito}</div></div>
 <div class="bloco problema"><span class="bloco-tag">por que é um problema</span>
@@ -449,6 +506,23 @@ def _plano(execucao: Execucao) -> str:
     return "".join(partes)
 
 
+def _revisao(execucao: Execucao) -> str:
+    casos = [r for r in execucao.para_revisao if not r.falhou]
+    if not execucao.juiz or not casos:
+        return ""
+    itens = "".join(
+        f"<li><strong>{html.escape(r.ataque.titulo)}</strong> ({html.escape(r.ataque.id)}) — "
+        f"juiz LLM: {html.escape(r.veredito_llm)}; "
+        f"{html.escape(mascara((r.juiz or {}).get('justificativa', '')))}</li>"
+        for r in casos
+    )
+    return (
+        "<h2>Para revisão humana</h2><p>O juiz LLM não teve certeza nestes casos. Eles não "
+        "contam como falha na nota — leia a conversa antes de concluir.</p>"
+        f"<ul class='plano-lista'>{itens}</ul>"
+    )
+
+
 def para_html(execucao: Execucao, suites: list[str]) -> str:
     placar = execucao.placar
     classe = "" if not execucao.testados else ("bom" if placar >= 90 else ("mau" if placar < 70 else ""))
@@ -490,6 +564,8 @@ def para_html(execucao: Execucao, suites: list[str]) -> str:
 {achados}
 
 {_plano(execucao)}
+
+{_revisao(execucao)}
 
 <h2>Execução completa</h2>
 <table><thead><tr><th>ataque</th><th>categoria</th><th>severidade</th><th>status</th></tr></thead>
