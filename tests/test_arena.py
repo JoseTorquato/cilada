@@ -181,12 +181,19 @@ def sem_rede(monkeypatch):
      [{"nome": "x", "url": "https://api.example.invalid/chat"}]),
 ])
 def test_contorno_por_campo_errado_e_barrado_sem_conexao(tmp_path, capsys, sem_rede, base, alvos):
+    """Barrado de um jeito ou de outro: campo recusado no carregamento, ou alvo
+    classificado como remoto. O que não pode é rodar."""
     lista = tmp_path / "lista.yaml"
     lista.write_text(yaml.safe_dump({"base": base, "alvos": alvos}), encoding="utf-8")
-    planos = arena.carrega_lista(lista)
-    assert all(p.remoto for p in planos), [(p.nome, p.endereco) for p in planos]
+    try:
+        planos = arena.carrega_lista(lista)
+    except ValueError:
+        planos = None  # config com campo que o tipo não usa é recusada
+    if planos is not None:
+        assert all(p.remoto for p in planos), [(p.nome, p.endereco) for p in planos]
     assert cli.main(["arena", "--lista", str(lista), "--saida", str(tmp_path / "out")]) == 2
-    assert "REMOTO" in capsys.readouterr().out
+    saida = capsys.readouterr()
+    assert "REMOTO" in saida.out or "inválida" in saida.err
     assert sem_rede == [], "a trava tem de recusar antes de qualquer conexão"
     assert not (tmp_path / "out").exists()
 
@@ -211,3 +218,10 @@ def test_roda_reconfere_no_objeto_mesmo_com_plano_adulterado(tmp_path, sem_rede)
     with pytest.raises(PermissionError):
         arena.roda([plano], ATAQUES[:1], ["ecommerce"], tmp_path / "out")
     assert sem_rede == []
+
+
+def test_lista_invalida_pela_cli_sai_com_codigo_2_sem_traceback(tmp_path, capsys):
+    lista = tmp_path / "lista.yaml"
+    lista.write_text(yaml.safe_dump({"alvos": []}), encoding="utf-8")
+    assert cli.main(["arena", "--lista", str(lista), "--seco"]) == 2
+    assert "inválida" in capsys.readouterr().err

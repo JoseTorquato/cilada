@@ -37,7 +37,11 @@ def _monta_alvo(args):
 def _arena(args, ataques, suites) -> int:
     if not args.lista:
         raise SystemExit("arena: informe --lista arquivo.yaml")
-    planos = arena.carrega_lista(Path(args.lista))
+    try:
+        planos = arena.carrega_lista(Path(args.lista))
+    except (ValueError, KeyError) as erro:
+        print(f"  lista da arena inválida: {erro}", file=sys.stderr)
+        return 2
     print(arena.plano_texto(planos, ataques))
     if args.seco:
         print("  --seco: nada foi executado.\n")
@@ -106,14 +110,14 @@ def main(argv: list[str] | None = None) -> int:
         print("nenhum ataque encontrado", file=sys.stderr)
         return 2
 
+    if args.comando == "arena":
+        return _arena(args, ataques, suites)
+
     if args.comando == "list":
         for a in ataques:
             print(f"  {a.severidade:<8} {a.id:<34} {a.titulo}")
         print(f"\n  {len(ataques)} ataques em {len(suites)} suíte(s): {', '.join(suites)}\n")
         return 0
-
-    if args.comando == "arena":
-        return _arena(args, ataques, suites)
 
     alvo = _monta_alvo(args)
     print(f"\n  cilada v{__version__} · {len(ataques)} ataques · pt-BR\n")
